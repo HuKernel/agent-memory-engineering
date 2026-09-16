@@ -98,7 +98,7 @@ npx skills add HuKernel/agent-memory-engineering --list
 | "Agent 串会话了 / 记错了用户信息" | DEBUG 工作流：INSPECT → REPRODUCE → TRACE → DIAGNOSE → PATCH → VERIFY |
 | "给记忆系统写测试和评估指标" | 三层测试体系（Universal Hard Invariant / Capability Hard Tests / Quality Metrics） |
 
-核心方法论：Request Understanding & Routing（多维请求模型 / 路由分级 / Routing ≠ Authorization / 歧义 fail-closed）、统一 Runtime Pipeline、七层记忆模型、semantic/episodic/procedural 分类、Writer 双 candidate source 门控、Forget/tombstone、Normal/Historical 双路由、Procedural Authority Boundary、Structured Core + Raw History、Memory Representation Strategy、Context Stability 三段布局、28 个能力测试场景。纯 instruction + references，无 MCP、无外部服务依赖。
+核心方法论：Request Understanding & Routing（多维请求模型 / 路由分级 / multi-intent / Routing ≠ Authorization / 歧义 fail-closed / paraphrase 鲁棒性）、统一 Runtime Pipeline、七层记忆模型、semantic/episodic/procedural 分类、Writer 双 candidate source 门控、Forget/tombstone、Normal/Historical 双路由、Procedural Authority Boundary、Structured Core + Raw History、Memory Representation Strategy、Context Stability 三段布局、31 个能力测试场景。纯 instruction + references，无 MCP、无外部服务依赖。
 
 ## Repository structure
 
@@ -111,7 +111,7 @@ skills/
                                     （Hard Invariant / 七层 / Writer / 检索 / Context Stability…）
         ├── request-understanding.md ← request understanding & routing pattern library
                                     （Request Model / Level 0–5 / taxonomy / fail-closed / 收编表）
-        └── testing.md            ← evaluation matrix（28 场景 + 质量指标）
+        └── testing.md            ← evaluation matrix（31 场景 + 质量指标）
 ```
 
 `skills/agent-memory-engineering/` 是唯一内容源（One Skill, One Source of Truth）；安装到各 agent 的副本由 skills CLI 管理。更新本仓库后重跑 `npx skills add HuKernel/agent-memory-engineering` 即可同步。

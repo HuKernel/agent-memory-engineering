@@ -302,7 +302,7 @@ system(固定) + [风格偏好] + [长期记忆(每条截断，top_k/总预算�
 | RAG | 文档库 | doc/owner | 20000 字 | 头尾块优先保，中间先截 |
 | 工具结果 | 工具/API 当次返回 | 当前请求（request-scoped） | 4000 字 | 已被后续结果取代的先丢 |
 
-- 能力门控：Request Understanding 输出的 capability_plan 为 false 的模块**物理跳过节点**，不要"检索了再让模型忽略"。needs_memory / needs_knowledge / needs_tools 是 capability_plan 的最小键集（完整键集与路由分级见 request-understanding.md §7）。
+- 能力门控：Request Understanding 输出的 capability_plan 为 false 的模块**物理跳过节点**，不要"检索了再让模型忽略"。needs_memory / needs_knowledge / needs_tools 是 capability_plan 的最小键集（完整键集与 realtime_state/external_state 术语见 request-understanding.md §7）；external_state=false 时实时 Source of Truth 查询节点同样物理跳过，external_state=true 只注入本请求真正需要的实时结果——Dynamic Tail，不进 Stable Prefix、不自动进 User Memory。
 - **Tool Result 双生命周期语义**：**Runtime Tool Result**（默认）= request-scoped——只用于当前 context 与当前任务计算，请求结束后不得作为 active context 延续、不得成为 User Memory、不得自动参与后续请求（即 §1 External Context 行），也不是 Memory Writer 候选输入（§3 输入边界）。**Optional Tool Audit / Event Archive**：产品确有 audit / replay / provenance / debugging / historical task inspection 需求时，允许按 retention policy 把 tool call / tool result / tool metadata 保存进 Raw History / Event Archive——但必须带 `lineage=tool_result`，且 archive ≠ memory：`promotion_source_allowed(tool_result) = false`（§3），归档永不使其获得 Memory Evidence 权限。无 audit/history 需求的项目 archive = not_needed（YAGNI）。
 - 资产类可变数据注入时必须带仲裁声明："以本实时数据为准；若与长期记忆不一致，视为已删除/变更"。记忆段与会话摘要冲突时同理：以记忆段为准——但 forget 场景不能只靠这句仲裁，必须叠加 §5 的 tombstone 注入期屏蔽。
 - 上表字符预算是 **implementation fallback**（简单项目直接用）；启用 Context Planner 的项目升级为 token 预算动态分配（见 §9.5）。
@@ -405,6 +405,7 @@ context_plan:
   episodic_memory:      {enabled: ..., budget_tokens: ..., top_k: ...}
   procedural_memory:    {enabled: ..., budget_tokens: ...}
   rag:                  {enabled: ..., budget_tokens: ...}
+  external_state:       {enabled: ..., budget_tokens: ...}   # 实时 SoT 查询结果（Dynamic Tail）
   tool_results:         {enabled: ..., budget_tokens: ...}
   discoverable_context: {enabled: ...}   # Tier 3 目录
 ```

@@ -32,10 +32,12 @@ description: >
 
 | 用户要什么 | 做法 |
 |---|---|
-| 不知道 Agent 怎么理解请求 / 识别意图 / 做能力路由 | 读 `references/request-understanding.md`；BUILD 的 DISCOVER（intent space 推断）+ DESIGN（routing 选型） |
-| 从零设计 / 建设 / 接入 Memory System | 走「BUILD 工作流」：DISCOVER → MODEL → DESIGN → MAP → IMPLEMENT → EVALUATE |
-| 已有 Memory System，想评估设计质量 | 走「AUDIT 工作流」：只读检查 + 差距报告，默认不改代码 |
-| 系统有症状（串会话/记错/污染/答非所问） | 走「调试工作流」定位 Root Cause，再查 `references/architecture.md` 对应模式 |
+| 不知道 Agent 怎么理解请求 / 识别意图 / 做能力路由 | 读 `references/request-understanding.md`；BUILD（Capability Scope: request_understanding=required） |
+| 不知道怎么设计长期记忆 / 跨会话恢复 | Memory BUILD：MODEL 的 Information/Memory Modeling + DESIGN 选层选型 |
+| 不知道怎么做 Context Management / token budget / summary / compression / stable prefix | Context BUILD：DESIGN 的 Context Strategy / Context Planner（architecture.md §5–§6、§9.5） |
+| Agent Runtime 整体设计（Intent + Memory + Context） | Integrated BUILD：三支柱联合设计（先做 Capability Scope Decision） |
+| 已有 Agent Runtime / Memory / Context 架构，想评估设计质量 | 走「AUDIT 工作流」：只读检查 + 差距报告，默认不改代码 |
+| 系统有症状（串会话/记错/污染，或 意图识别错误/路由错误/工具选错/能力误激活/错误跨会话历史检索） | 走「调试工作流」定位 Root Cause（CASE R / A–F），再查对应 reference：routing → `request-understanding.md`；memory/context → `architecture.md`；测试 → `testing.md` |
 | 要写测试 / 验收 / 评估指标 | 读 `references/testing.md`，按项目能力选场景 |
 
 ## 铁律（冲突时按此序裁决）
@@ -54,7 +56,19 @@ description: >
 
 ## BUILD 工作流：DISCOVER → MODEL → DESIGN → MAP → IMPLEMENT → EVALUATE
 
-为“从零设计 / 重建 / 接入 Memory System”的项目服务。`references/architecture.md` 是 Memory/Context 的**模式库不是模板**，`references/request-understanding.md` 是请求理解与路由的模式库——每一步都在做“选择 + 说理由”，不是照抄全套；DESIGN 阶段必须完成 **Layer / Memory Type / Representation / Advanced Pattern / Context Strategy（含 Context Stability）/ Routing Strategy** 选择，流程不另加阶段。全程约束：铁律 1–9、YAGNI、复用现有栈、minimal change、可测试；最高取舍序 **Correctness → Relevance → Adaptivity → Maintainability → Efficiency**，复杂度只在有理由时引入。
+为从零设计、重建或接入 **Agent Runtime Information Architecture**（Request Understanding / Memory / Context）的项目服务，按用户实际需求选择需要的能力，**不要求三个模块同时重建**：Intent-only task 不强制重建 Memory；Memory-only task 只做必要最小 Request Understanding 设计；Context-only task 不强制新增长期 Memory；Integrated Agent Runtime task 三者联合设计。`references/architecture.md` 是 Memory/Context 的**模式库不是模板**，`references/request-understanding.md` 是请求理解与路由的模式库——每一步都在做“选择 + 说理由”，不是照抄全套；DESIGN 阶段必须完成 **Layer / Memory Type / Representation / Advanced Pattern / Context Strategy（含 Context Stability）/ Routing Strategy** 选择，流程不另加阶段。全程约束：铁律 1–9、YAGNI、复用现有栈、minimal change、可测试；最高取舍序 **Correctness → Relevance → Adaptivity → Maintainability → Efficiency**，复杂度只在有理由时引入。
+
+**Capability Scope Decision**（BUILD 第一个动作——任务范围判断，不是 runtime schema、不是 DB 结构、不是新 Pattern；防止 Intent-only 被强推整套 Memory、Context-only 被强推长期 Memory）：
+
+```yaml
+task_capabilities:            # 每项必带 reason
+  request_understanding:
+    status: required | relevant | not_needed
+  memory:
+    status: required | relevant | not_needed
+  context:
+    status: required | relevant | not_needed
+```
 
 ### 1. DISCOVER —— 理解产品，而不是立刻套架构
 
@@ -93,9 +107,23 @@ product_context:
 
 同时判定三件事：哪些信息需要长期记忆、哪些只是短期运行状态、哪些已有独立 Source of Truth（有 SoT 的只实时查询，铁律 7）。
 
-### 2. MODEL —— 信息分类（Memory Requirement Mapping）
+### 2. MODEL —— Runtime Requirement Modeling（capability-selective）
 
-先分类信息，不先设计数据库。每类信息建立映射：
+先建模，不先设计数据库。按 Capability Scope Decision 拆两个子模型，核心原则 **No consumer → No field**，不强制全字段输出。
+
+**A. Request Modeling**（request_understanding = required / relevant 时；字段按 `request-understanding.md` §1 裁剪原则决定）：
+
+```yaml
+request_mapping:
+  intent:
+  scope_intent:
+  temporal_intent:
+  information_needs:
+  action_need:
+  capability_plan:
+```
+
+**B. Information / Memory Modeling**（memory = required / relevant 时，即原 Memory Requirement Mapping）——每类信息建立映射：
 
 ```text
 信息 → 生命周期(long/task/session/request) → scope(global/thread/project)
@@ -128,6 +156,15 @@ information_mapping:
 例：「项目决定使用 PostgreSQL」→ 长期 / project / semantic + domain=decision / rich_contextual_card → **是**长期记忆（决策状态/理由/备选放 structured_data）→ memory 表 → 正常召回。
 例：「上次部署失败因 migration 未锁表」→ 长期 / project / episodic / enhanced_note → **是**长期记忆（历史经验，不因新事实过期；普通召回显著性可衰减——只要未 forget、未 hard-delete、仍在 retention policy 内，显式历史查询可从 active/cold/archive tier 恢复）。
 例：「当前任务完成 70%」→ task / task state 是 SoT → **不是**长期记忆 → 结构化运行态 → 实时读取。
+
+**Capability-selective 规则**（两个子模型按任务范围启用）：
+
+```text
+Request/Intent-only project:  Request Modeling = required；Memory Modeling = only if relevant
+Memory-heavy project:         Memory Modeling = required；Request Modeling = minimal（只建 routing 必要输入）
+Context-only optimization:    只建 Context Planner 真正需要的 request dimensions
+Full Agent Runtime:           Request Modeling + Information/Memory Modeling
+```
 
 最常见反模式 = 把所有东西塞进 Memory Table。分类结果就是选层与写策略的输入。
 
@@ -310,7 +347,7 @@ memory_system_blueprint:
 
 ### 6. EVALUATE —— 按能力选测试，不机械全跑
 
-按 `references/testing.md` 三层分类选择：**A. Universal Hard Invariant**（§6 泄漏/回流 = 0 类，启用对应基础能力即必须满足）+ **B. Capability Hard Tests**（§1 场景 × §7「能力 → 场景映射」，能力启用才必测——如：有长期 User Memory → 1/5/6/7/14；支持 Forget → 11/15；启用 Request Understanding / Router → 24–28；无 project → 跳过 13 并写 reason）+ **C. Quality Metrics**（§8–§11：write / retrieval / routing / context / maintenance / end-task delta / cost）。未启用的能力跳过对应场景并在 skipped_tests 写 reason，不机械全跑；**Metric 阈值按项目校准，不是全项目统一硬门槛**。
+按 `references/testing.md` 三层分类选择：**A. Universal Hard Invariant**（§6 泄漏/回流 = 0 类，启用对应基础能力即必须满足）+ **B. Capability Hard Tests**（§1 场景 × §7「能力 → 场景映射」，能力启用才必测——如：有长期 User Memory → 1/5/6/7/14；支持 Forget → 11/15；启用 Request Understanding / Router → 24–31（capability-selective，见 §7）；无 project → 跳过 13 并写 reason）+ **C. Quality Metrics**（§8–§11：write / retrieval / routing / context / maintenance / end-task delta / cost）。未启用的能力跳过对应场景并在 skipped_tests 写 reason，不机械全跑；**Metric 阈值按项目校准，不是全项目统一硬门槛**。
 
 ```yaml
 evaluation_plan:
@@ -328,25 +365,26 @@ evaluation_plan:
 
 ## AUDIT 工作流（只读体检，默认不改代码）
 
-用户说"帮我看看这个 Memory System 设计得怎么样"时走这条路。只读检查、产出差距报告；默认不改代码。用户要求修复时**转「调试工作流」**，默认从 REPRODUCE / TRACE 开始建立修复证据；只有 AUDIT 已同时具备 稳定复现、failing test、first contamination point、root cause、high-confidence 证据时，才允许带证据直接进 PATCH——不为省重复步骤跳过 Root Cause 证明。
+用户要求审查现有 Agent 的 request understanding、intent routing、memory 或 context architecture（如"帮我看看这个 Memory System / 路由层设计得怎么样"）时走这条路。只读检查、产出差距报告；默认不改代码。用户要求修复时**转「调试工作流」**，默认从 REPRODUCE / TRACE 开始建立修复证据；只有 AUDIT 已同时具备 稳定复现、failing test、first contamination point、root cause、high-confidence 证据时，才允许带证据直接进 PATCH——不为省重复步骤跳过 Root Cause 证明。
 
 ```text
-INSPECT → CHECK INVARIANTS → CHECK MAPPING → CHECK WRITE PATH → CHECK READ PATH
-→ CHECK CONTEXT PATH → SELECT TEST MATRIX → REPORT GAPS
+INSPECT → CHECK INVARIANTS → CHECK MAPPING → CHECK ROUTING PATH → CHECK WRITE PATH
+→ CHECK READ PATH → CHECK CONTEXT PATH → SELECT TEST MATRIX → REPORT GAPS
 ```
 
 1. **INSPECT**：只读侦察，同调试工作流 INSPECT 的 8 个检查点，但对象是整个系统而非单个 bug。
 2. **CHECK INVARIANTS**：对照 architecture.md §0 的 10 条 Hard Invariant 逐条判定 满足 / 违反 / 不适用（含 §0.9 Routing ≠ Authorization、§0.10 歧义 fail closed——启用路由的系统必查）。
 3. **CHECK MAPPING**：可变状态是否进了长期记忆？实时数据有没有独立 Source of Truth？RAG/工具结果是否被持久化成 memory？
-4. **CHECK WRITE PATH**：写入门控、查重、冲突消解、证据优先级（explicit > inferred_*）。
-5. **CHECK READ PATH**：Visibility 硬过滤（user → scope → status → valid_to）、Normal/Historical 双路由、缓存 key 是否含会话维度。
-6. **CHECK CONTEXT PATH**：段清单、预算与丢弃顺序、能力门控、tombstone 注入期屏蔽。
-7. **SELECT TEST MATRIX**：按启用能力从 testing.md 选场景（同 BUILD 的 EVALUATE）。
-8. **REPORT GAPS**：结构化输出 `{gaps: [{severity, violated_invariant, location, fix_hint}], test_matrix, priority}`，修复优先级按铁律下的 PATCH 优先序（数据 Scope 隔离 > Context Routing > Retrieval Filter > …）排。
+4. **CHECK ROUTING PATH**（request-understanding.md）：request model 是否按项目裁剪（无消费方字段 = 反模式）？intent taxonomy 是否来自产品能力而非内置通用分类？unknown / other 兜底是否存在？scope / temporal 判定是否正确？capability_plan 是否与 request model 一致？false capability 是否物理跳过？routing 是否错误扩大 visibility？router 是否错误承担 authorization（§0.9）？ambiguity 是否 fail closed（§0.10）？routing output 是否误入 Stable Prefix？handoff / specialist 是否过度设计（intent label ≠ Agent）？职责边界：**Routing Path 查"为什么选择这些能力"，Read Path 查"这些能力如何安全读取数据"**——不重复 architecture.md 的 Memory Visibility 检查。
+5. **CHECK WRITE PATH**：写入门控、查重、冲突消解、证据优先级（explicit > inferred_*）。
+6. **CHECK READ PATH**：Visibility 硬过滤（user → scope → status → valid_to）、Normal/Historical 双路由、缓存 key 是否含会话维度。
+7. **CHECK CONTEXT PATH**：段清单、预算与丢弃顺序、能力门控、tombstone 注入期屏蔽。
+8. **SELECT TEST MATRIX**：按启用能力从 testing.md 选场景（同 BUILD 的 EVALUATE）。
+9. **REPORT GAPS**：结构化输出 `{gaps: [{severity, violated_invariant, location, fix_hint}], test_matrix, priority}`，修复优先级按铁律下的 PATCH 优先序（Authorization / Scope Isolation > Request Routing > Retrieval Filter > …）排。
 
 ## 调试工作流：INSPECT → REPRODUCE → TRACE → DIAGNOSE → PATCH → VERIFY
 
-对"系统答出了不属于当前上下文的内容"类 bug 严格按序执行。每阶段有明确禁令；跳阶段（没复现就改码、没 DIAGNOSE 就重构）= 返工。
+对“系统答出了不属于当前上下文的内容”“意图识别 / 路由 / 能力激活错误”类 bug 严格按序执行。每阶段有明确禁令；跳阶段（没复现就改码、没 DIAGNOSE 就重构）= 返工。
 
 ### 1. INSPECT —— 只读侦察
 
@@ -363,18 +401,21 @@ INSPECT → CHECK INVARIANTS → CHECK MAPPING → CHECK WRITE PATH → CHECK RE
 - 自动化复现：写成 pytest 用例，**修复前必须 FAIL**（bug 的可重复证据），修复后必须 PASS。
 - **无法稳定复现 → 停在这里**。只加 logging/trace 找触发条件，不改任何代码（见 TRACE 的 CASE F）。
 
-### 3. TRACE —— 找错误内容第一次出现的位置
+### 3. TRACE —— 找错误第一次出现的位置
 
 ```
-A. 数据库查询阶段   → 查询缺 scope 过滤（只有 user_id 没有 thread_id）
-B. 检索阶段         → digest/向量检索按 user 级取数，混入了其他会话内容
-C. 摘要阶段         → summary 管线聚合了别的会话
-D. 上下文组装阶段   → 检索结果正确，但 Builder 把错误源拼进了最终 prompt
-E. LLM 幻觉         → 最终 context 完全正确，模型自己编的
-F. 无法稳定复现     → 回 REPRODUCE 加 observability，禁止改架构
+R. Request Understanding / Routing → request model 判定已错：scope/temporal/capability_plan 误判
+                                     （查 routing_trace：rule_hits / llm_router.decision /
+                                      fallback_reason / ambiguity / authorization_checks）
+A. 数据库/存储查询    → 查询缺 scope 过滤（只有 user_id 没有 thread_id）
+B. 检索阶段          → digest/向量检索按 user 级取数，混入了其他会话内容
+C. 摘要/压缩阶段     → summary 管线聚合了别的会话
+D. 上下文组装阶段    → 检索结果正确，但 Builder/Planner 把错误源拼进了最终 prompt
+E. LLM/执行阶段      → 最终 context 完全正确，模型自己编的
+F. 无法稳定复现      → 回 REPRODUCE 加 observability，禁止改架构
 ```
 
-典型规律：DB 层通常是对的（ORM 过滤天然正确），**泄漏首现于 B 或 D——某个"便利 digest"按 user_id 取了跨会话数据**。LLM 很少是无辜的：它只是忠实复述被注入的内容。路由误判（scope/temporal intent 错误）通常也以 B/D 形态出现——先查 routing_trace 的 rule_hits / fallback_reason，修复优先补确定性规则或 fail-closed 默认值（request-understanding.md §4/§5），不是调检索权重。
+典型规律：DB 层通常是对的（ORM 过滤天然正确），**泄漏首现于 B 或 D——某个“便利 digest”按 user_id 取了跨会话数据**。LLM 很少是无辜的：它只是忠实复述被注入的内容。启用路由的系统先判 R——**Routing 错误是独立 first failure point**：用户明确问“这个会话里……”而 Router 产出 user + historical，first failure point 是 R 不是 B，即使 Retrieval 忠实执行了错误 route（downstream symptom 不改判分类）。Routing 根因的修复优先补确定性规则 / fail-closed 默认值（request-understanding.md §4/§5），不是调检索权重。
 
 ### 4. DIAGNOSE —— 结构化结论（先报告，后动手）
 
@@ -382,16 +423,21 @@ F. 无法稳定复现     → 回 REPRODUCE 加 observability，禁止改架构
 symptom:
 expected:
 actual:
-first_contamination_point:   # A–F 分类 + 文件:函数
+first_contamination_point:   # R / A–F 分类 + 文件:函数
 root_cause:
 evidence:                    # failing test 名 / trace 片段；无证据 = 无结论
 confidence:                  # high | medium | low；low 则回 TRACE
 affected_scope:              # 受影响的 scope 与查询路径
+routing_evidence:            # 仅 first_contamination_point=R 时输出（capability-selective，不要求所有 bug 都有）
+  expected_request_model:
+  actual_request_model:
+  rule_hits:
+  fallback_reason:
 ```
 
 ### 5. PATCH —— 最小修改
 
-修复优先级：**数据 Scope 隔离 > Context Routing > Retrieval Filter > Summary Isolation > Context Builder > Prompt > Reranking**。
+修复优先级：**Authorization / Scope Isolation > Request Routing > Retrieval Filter > Summary Isolation > Context Planner / Builder > Prompt > Reranking**——Routing 根因有明确位置，但不凌驾 Authorization / Scope Hard Guard。
 
 - minimal patch 优先：改一个 WHERE 条件优于改检索策略，改检索策略优于调重排权重，任何都优于重设计管线。禁止借修 bug 顺手重构 Memory System。
 - 动手前先向用户说明：bug 在哪个文件哪个函数、为什么发生、改什么、影响面。
@@ -408,7 +454,7 @@ affected_scope:              # 受影响的 scope 与查询路径
 6. 重复记忆不重复召回：场景 7；
 7. context token 有界：场景 4。
 
-再加**能力回归**：列出本次修改的 affected_capabilities，按 testing.md §7 Capability Hard Tests「能力 → 场景映射」选测试——改 Forget 跑 11/15；改 Project Visibility 跑 12/13；改 valid_to 跑 14；改 Historical Route 跑 10；改 Writer 输入边界跑 9；改 Procedural 写入/注入跑 19；改 Raw History Retrieval 跑 20/21；改 Derived Writer / lineage 过滤跑 22；改 Context Stability / stable prefix 布局跑 23；改 Request Understanding / Router（含 capability 门控、ambiguity、taxonomy）跑 24/25/26/27/28。原则：**修改影响到的 capability，其对应测试必须全部通过**。
+再加**能力回归**：列出本次修改的 affected_capabilities，按 testing.md §7 Capability Hard Tests「能力 → 场景映射」选测试——改 Forget 跑 11/15；改 Project Visibility 跑 12/13；改 valid_to 跑 14；改 Historical Route 跑 10；改 Writer 输入边界跑 9；改 Procedural 写入/注入跑 19；改 Raw History Retrieval 跑 20/21；改 Derived Writer / lineage 过滤跑 22；改 Context Stability / stable prefix 布局跑 23；改 Request Understanding / Router baseline（含 capability 门控、ambiguity、taxonomy）跑 24/25/26/27/28；改 multi-intent 跑 29；改 routing 注入防护跑 30；改语义 / LLM router 跑 31 + §8 Routing Quality。原则：**修改影响到的 capability，其对应测试必须全部通过**。
 
 ## 核心模式速查（详细版在 references/architecture.md 与 references/request-understanding.md）
 

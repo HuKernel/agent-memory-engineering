@@ -65,6 +65,7 @@ request_understanding:
     project_memory: false
     raw_history: false
     rag: false
+    external_state: false
     tools: false
     specialist_agent: false
   ambiguity:
@@ -98,7 +99,7 @@ request_understanding:
 | 0 无专职路由 | good tool descriptions + good instructions + 模型原生 tool selection，零额外 LLM call | 单 Agent、工具少、模型可直接可靠选择工具 | 误路由率可观测上升 |
 | 1 确定性路由 | rules / regex / request metadata / UI state / API route | "刚才/这个会话"→thread；"忘掉…"→forget；显式 project_id→project；realtime 请求→external SoT | 自然语言 scope / 组合意图出现 |
 | 2 结构化 LLM 路由 | LLM structured output（schema validated） | 语义 intent、复杂表达、组合意图、自然语言 scope | 确定性信号覆盖不足且语义复杂 |
-| 3 混合路由 | 硬规则 / metadata → LLM 理解 → validation → capability routing | **生产推荐默认** | route 数量大（数十以上） |
+| 3 混合路由 | 硬规则 / metadata → LLM 理解 → validation → capability routing | 语义复杂场景的常见生产形态 | route 数量大（数十以上） |
 | 4 分层路由 | Domain → Capability → Specialist 两级路由 | route 数量大 | — |
 | 5 Agent / Specialist 路由 | handoff / agent-as-tool（§9） | 不同任务真的需要不同 prompts / tools / permissions / context / expertise | — |
 
@@ -191,10 +192,28 @@ capability_plan:
   project_memory: true
   raw_history: false          # cross-session raw 检索
   rag: false
+  external_state: false       # 实时 Source of Truth 读取（≠ tools，见下）
   tools: false
   specialist_agent: false
   # memory 键可按 memory_type 细分（semantic/episodic/procedural），
   # 与 architecture §9.5 context_plan 的分型块对齐；简单项目用粗粒度键
+```
+
+**realtime_state vs external_state**（术语，勿混）：
+
+```text
+realtime_state = information need（request model 声明"需要实时状态"）
+external_state = runtime capability（运行时执行"实时 SoT 读取"）
+映射：information_needs 含 realtime_state → external_state 候选 = true
+```
+
+**external_state ≠ tools**：external_state = 需要读取实时 Source of Truth；tools = 需要执行一个 tool/API capability。external_state 可由 database query / service API / tool / cache / internal service 实现——external_state=true 不自动意味着 tools=true，由目标项目技术栈映射决定；且 external_state=true 仍只是执行计划，不是 authorization（§0）。示例——**当前可变状态 → Source of Truth，不是长期 Memory**（SKILL.md 铁律 7 / architecture §0.7）：
+
+```text
+"我现在账户余额是多少？"
+→ temporal_intent:   current
+  information_needs: [realtime_state]
+  capability_plan:   {user_memory: false, raw_history: false, external_state: true}
 ```
 
 `false` → **节点物理跳过**（architecture §6 能力门控；needs_memory / needs_knowledge / needs_tools 是其最小键集），继续保持「不要全部查完再告诉模型忽略」：
@@ -245,7 +264,7 @@ Routing 是统一入口：数据源选择（current messages / session summary /
 
 ### 8.3 与 Context Planner 的连接
 
-Planner 输入 = request_model（intent / scope / temporal / information_needs / capability_plan / task_complexity）+ 模型窗口等约束 → 输出块与 token（architecture §9.5）。Planner 消费 request_model，不重新做请求理解。
+Planner 输入 = request_model（intent / scope / temporal / information_needs / capability_plan / task_complexity）+ 模型窗口等约束 → 输出块与 token（architecture §9.5）。Planner 消费 request_model，不重新做请求理解。**external_state 对齐**：external_state=false → 实时 Source of Truth 查询节点物理跳过；external_state=true → 只注入本请求真正需要的实时结果——结果属 Dynamic Tail，不进 Stable Prefix，不自动进 User Memory（architecture §6 External Context 行）。
 
 ### 8.4 与 Stable Prefix 的边界
 
@@ -263,7 +282,7 @@ routing output（intent / confidence / route result / 当前 tool result）是 *
 
 ## 10. Routing Trace 与观测
 
-memory_trace（architecture §9.9）扩展 routing 段（或独立 routing_trace），让「为什么这么路由 / 为什么跳过 / 为什么澄清」可读——它是 testing.md 场景 24–28 的数据源：
+memory_trace（architecture §9.9）扩展 routing 段（或独立 routing_trace），让「为什么这么路由 / 为什么跳过 / 为什么澄清」可读——它是 testing.md routing 场景（24–31）的数据源：
 
 ```yaml
 routing_trace:

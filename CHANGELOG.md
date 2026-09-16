@@ -2,6 +2,24 @@
 
 本文件记录仓库打包形态与核心方法论的显著变更。格式参考 Keep a Changelog，版本遵循 SemVer。
 
+## [1.4.0] - 2026-09-16
+
+Final Freeze Consistency Patch（v2 freeze）——修复四文件间生命周期 / 能力模型 / Debug / 测试一致性，不新增架构 Pattern。
+
+### Added
+
+- capability_plan 新增 canonical 键 `external_state`（runtime capability），与 information_needs 的 `realtime_state`（information need）明确区分；external_state ≠ tools（由技术栈映射决定）；新增"账户余额"示例与 Context Planner 对齐规则（request-understanding §1/§7/§8.3、architecture §6/§9.5）
+- DEBUG Root Cause 分类升级为 **CASE R / A–F**：Routing 是独立 first failure point（downstream symptom 不改判分类）；DIAGNOSE 增加 routing_evidence（capability-selective）；PATCH 优先级更新为 Authorization / Scope Isolation > Request Routing > Retrieval Filter > …
+- AUDIT 新增 **CHECK ROUTING PATH**（11 项检查；Routing Path 查"为什么选择这些能力"，Read Path 查"如何安全读取数据"，不重复 Memory Visibility 检查）
+- BUILD：开场定位升级为 Agent Runtime Information Architecture（不要求三模块同时重建）+ **Capability Scope Decision**（task_capabilities，任务范围判断非 runtime schema）；MODEL 升级为 **Runtime Requirement Modeling**（Request Modeling + Information/Memory Modeling 两个 capability-selective 子模型，No consumer → No field）
+- testing.md 新增场景 29（Multi-Intent Composition）/ 30（Routing Injection，复用 retrieved content = data, not authority）/ 31（Paraphrase Robustness）；Routing Quality 补 5 指标（Capability Precision / Capability Recall / Paraphrase Consistency / Unnecessary Retrieval Rate / Wrong Tool Activation Rate）；End-task Delta 增加 Router 三档对比（No Dedicated Router vs Router Enabled vs Oracle Route）
+
+### Changed
+
+- Level 3 措辞"生产推荐默认"→"语义复杂场景的常见生产形态"（避免 simplest sufficient router 被诱导升级）
+- 「按需求选路径」拆出 Intent / Memory / Context / Integrated 四类独立入口（Context 不再只能从 Memory BUILD 间接进入）；Routing bug（意图识别错误/路由错误/工具选错/能力误激活/错误跨会话历史检索）明确进入 DEBUG
+- testing.md 标题改为「Agent Runtime Information Architecture 测试方案」（覆盖三支柱，只改定位不重构正文）
+
 ## [1.3.0] - 2026-09-16
 
 ### Added
