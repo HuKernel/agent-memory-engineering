@@ -84,7 +84,7 @@ product_context:
 memory_type 与 scope/生命周期**正交**（architecture.md §9.1）：semantic = 稳定事实/偏好，episodic = 过去任务的成败经验，procedural = Agent 行动规则——组合如 User+Semantic、Project+Episodic 都是合法的。
 
 例：「用户喜欢深色主题」→ 长期 / global / semantic / 用户明确陈述 → **是**长期记忆 → memory 表 → 正常召回。
-例：「上次部署失败因 migration 未锁表」→ 长期 / project / episodic → **是**长期记忆（历史经验，不因新事实过期）。
+例：「上次部署失败因 migration 未锁表」→ 长期 / project / episodic → **是**长期记忆（历史经验，不因新事实过期；检索显著性可衰减，显式历史查询永远可恢复）。
 例：「当前任务完成 70%」→ task / task state 是 SoT → **不是**长期记忆 → 结构化运行态 → 实时读取。
 
 最常见反模式 = 把所有东西塞进 Memory Table。分类结果就是选层与写策略的输入。

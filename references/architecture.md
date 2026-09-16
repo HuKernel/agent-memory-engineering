@@ -193,10 +193,10 @@ BUILD Workflow 在 DESIGN 阶段逐项判定 required / recommended / optional /
 
 ### 9.1 Memory Type 第二维度：semantic / episodic / procedural
 
-七层回答"存哪里/谁可见/活多久"；memory_type 回答"这是什么性质的信息、如何被使用"。**两轴正交**：User+Semantic、Project+Semantic、Project+Episodic、Agent/Project+Procedural 都是合法组合。复用 §2 现有 `memory_type` 字段，值域扩展：
+七层回答"存哪里/谁可见/活多久"；memory_type 回答"这是什么性质的信息、如何被使用"。**两轴正交**：User+Semantic、Project+Semantic、Project+Episodic、global/project/thread+Procedural 都是合法组合——procedural **复用现有 scope 枚举，不引入 agent scope**：global procedural = 系统/Agent 通用规则，project procedural = 项目专属规则，thread procedural = 极少使用、仅会话内临时策略；未来 Multi-Agent 确需 agent-specific ownership 时，经 §10.3 migration 以 owner_type/owner_id 引入。复用 §2 现有 `memory_type` 字段，值域扩展：
 
 - **semantic**：稳定事实/偏好/约束/属性（"用户喜欢深色主题""项目用 PostgreSQL"）——现有 memory 表主体，无增量成本。
-- **episodic**：过去的任务/尝试/结果/成败经验（"上次部署失败是 migration 未锁表"）。`structured_data` 记 `{outcome, task_type, entities}`。注意：episodic 不因新事实 supersede——旧 episode 是真实历史，只能 forget，不会"过期"。
+- **episodic**：过去的任务/尝试/结果/成败经验（"上次部署失败是 migration 未锁表"）。`structured_data` 记 `{outcome, task_type, entities}`。**historical validity ≠ retrieval salience**：episodic 不因新事实 supersede——旧 episode 是真实历史，只能 forget，不会"过期"；但旧 episode 可以降低检索优先级、进入 cold/archive tier、经 salience decay 降低普通召回，且 explicit historical query 永远可恢复。不因"旧"改写或删除历史事实；recency ≠ truth。
 - **procedural**：Agent 行动规则/策略/技能（"migration 前必须检查 lock strategy"）。检索时作为 instruction 注入；默认不修改 system prompt（见 9.6）。
 
 选型参考：普通聊天 Agent = semantic required / episodic optional / procedural not_needed；Coding/长任务 Agent = semantic+episodic required / procedural recommended。不默认全开。
@@ -227,7 +227,7 @@ cleanup low-value
 
 ### 9.4 Progressive Disclosure（三层上下文）
 
-- **Tier 1 Core/Pinned**：当前任务、安全规则、项目硬约束、用户明确的重要限制。极小、永不丢。
+- **Tier 1 Core/Pinned**：当前任务、安全规则、项目硬约束、用户明确的重要限制。极小；**最高保留优先级，不参与普通 relevance-based dropping，但受模型硬 context window 限制**。硬溢出处理链：system/safety/mandatory instructions → pinned structured compaction（结构化压缩，不删约束）→ second-stage retrieval / deferred context → 仍放不下则 fail closed 显式报错——**不得静默截断关键约束**。
 - **Tier 2 Retrieved**：按 query 召回的相关 user/project memory、episodic、RAG——即 §6 Context Builder 主体。
 - **Tier 3 Discoverable**：不注入内容，只注入目录（namespace / index / category / file path / metadata），Agent 发现缺上下文时主动 search/open/retrieve：
 
@@ -269,7 +269,18 @@ procedural 默认是 **retrievable instruction**（检索注入），不是自�
 
 ### 9.7 Episodic → Procedural Learning
 
-启用 episodic+procedural 的项目可加学习环：episode → repeated evidence → reflection candidate → evaluation（含 counterexample check）→ procedural memory。例：三次 migration 锁表 episode → 候选规则"migration 前检查 lock strategy"。一次 episode 不得直接改行为；minimum evidence / confidence 是 Recommended Default，由 eval 校准。
+启用 episodic+procedural 的项目可加学习环：episode → repeated evidence → reflection candidate → evaluation → procedural memory。promotion 必须同时权衡 **positive evidence / negative evidence / counterexamples / applicability conditions**——目标不是"所有情况下都成立"的宽泛规则，而是**带适用条件的精确规则**（学"对于 shared relational DB migration，执行前检查 lock strategy"，不学"所有 migration 前必须检查 lock"）：
+
+```yaml
+procedural_candidate:
+  rule:
+  applicability_conditions: []
+  supporting_evidence: []      # episode/memory ids
+  counterexamples: []
+  confidence:
+```
+
+一次 episode 不得直接改行为；minimum evidence / confidence 是 Recommended Default，由 eval 校准；存在未解释的 counterexample 时不 promote——先收窄条件或拒绝。
 
 ### 9.8 Entity-aware Retrieval（可选增强）
 
@@ -284,10 +295,11 @@ memory_trace:
   write:     {candidates, accepted, rejected, rejection_reason}
   retrieval: {query, candidates, visibility_filtered, ranked, selected}
   context:   {planned_blocks, token_budget, dropped_items, drop_reason}
-  usage:     {injected_memory_ids, cited_or_used_memory_ids}
+  usage:     {injected_memory_ids, explicitly_cited_memory_ids,
+              attributed_memory_ids, attribution_confidence}
 ```
 
-存储按 dev mode / sampling / debug mode 分级，不要求永久全量。
+attribution 语义：`attributed_memory_ids / attribution_confidence` 是 **observability signal，不是 causal ground truth**——"Memory 是否真正提升结果"主要由 testing.md §10 的 End-task Delta Eval（No Memory vs Memory vs Oracle）判定。存储按 dev mode / sampling / debug mode 分级，不要求永久全量。
 
 ## 10. Optional Specialized Patterns（特定领域才考虑）
 

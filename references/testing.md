@@ -2,9 +2,9 @@
 
 来自真实 bug 的测试集。每个用例都对应一次线上真实故障或高危路径，不是想象出来的覆盖。定位：**测试矩阵 / 评估库**——BUILD / AUDIT / VERIFY 按项目启用的能力选择适用场景，不机械运行全部。术语按 SKILL.md 约定：thread == conversation == 会话。
 
-两类结果严格区分：**Hard Invariant Test**（§1 十五场景 + §6 泄漏/回流类指标，必须满足，如 cross-session leakage = 0）与 **Quality Metric**（§8 起，阈值按项目校准，如 Recall@5 = 0.82 不是全项目统一硬门槛）。
+两类结果严格区分：**Hard Invariant Test**（§1 十八场景 + §6 泄漏/回流类指标，必须满足，如 cross-session leakage = 0）与 **Quality Metric**（§8 起，阈值按项目校准，如 Recall@5 = 0.82 不是全项目统一硬门槛）。
 
-## 1. 十五大核心场景
+## 1. 十八大核心场景
 
 | # | 场景 | 构造 | 断言 |
 |---|---|---|---|
@@ -23,6 +23,9 @@
 | 13 | 同用户跨项目隔离 | 同一 User 在 Project A、Project B 各写 project memory；另发一个不带 project 上下文的请求 | Project B 请求中 Project A 记忆零召回（反之亦然）；无 project_id 的请求对两条 project memory 均 0 召回（fail closed）；global memory 不受影响 |
 | 14 | valid_to 边界 | 同一 user 两条 active 记忆：valid_to = NULL 与 valid_to = 昨天 | NULL 条正常召回（NULL = 永久有效）；已过期条零召回 |
 | 15 | Tombstone scope 隔离 | 同一 User：Project A 中事实 X 已 forget（且 X 已进入 A 的会话摘要）；Project B 中也存在事实 X；另构造 thread 级 tombstone 对照 | Project A 请求：X 零召回、摘要中 X 被注入期屏蔽；Project B 请求：X 正常召回，不受 A 的 tombstone 影响；thread tombstone 只屏蔽本 thread 摘要，不波及其他会话/项目 |
+| 16 | Episodic 旧而有效 | 多条 episodic 落库后经过较长时间 / 大量新 episode 积累 | 旧 episode 不被删除/supersede/改写（historical validity）；普通召回可降权或入 cold tier（salience decay）；显式历史查询（"上上次那个故障怎么处理的"）仍可完整恢复 |
+| 17 | Procedural 过度泛化 | 三次"shared relational DB migration 检查 lock 后成功" + 一次"单机 SQLite migration 不检查 lock 也成功"的 counterexample | promotion 携带 applicability_conditions；存在未解释 counterexample 时不 promote 或收窄条件；产出的规则不得覆盖 counterexample 场景 |
+| 18 | Context Planner 硬溢出 | 构造 mandatory + pinned + 各段总量超出模型 context window 的请求 | pinned 不被静默截断；溢出走 pinned 结构化压缩 → second-stage retrieval / deferred context；仍放不下则显式 fail closed 报错；关键约束在最终 context 中可验证存在 |
 
 场景 2 的标准测试对话（可直接抄）：
 
@@ -101,10 +104,10 @@ assert expected_scope_marker in out["history_digest"]
 | 多用户 | 12（user isolation 部分） |
 | Project | 12（project isolation 部分）+ 13 |
 | Summary / 长会话 | 4；同时支持 Forget 时加验 11 的 Ghost Summary 断言 |
-| Episodic Memory | 10（历史语义部分）+ §8 Retrieval Quality |
-| Procedural Memory | §8 Memory Adherence（遵守率）+ architecture §9.6 安全边界（不得自动改 system prompt） |
+| Episodic Memory | 10（历史语义部分）+ 16 + §8 Retrieval Quality |
+| Procedural Memory | 17 + §8 Memory Adherence（遵守率）+ architecture §9.6 安全边界（不得自动改 system prompt） |
 | Background Consolidation | 5（background 产出一律按 inferred 门控，永不覆盖 explicit） |
-| Progressive Disclosure / Context Planner | 4 + §8 Context Quality |
+| Progressive Disclosure / Context Planner | 4 + 18 + §8 Context Quality |
 
 未启用的能力 → 跳过对应场景并在 evaluation_plan.skipped_tests 写 reason，不机械运行全部。DEBUG VERIFY 的能力回归同查本表：修改影响到的 capability，其对应场景必须全绿。
 
