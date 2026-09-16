@@ -12,7 +12,7 @@
 ### Removed
 
 - 自定义安装器（`installers/`）、plugin manifests（`.claude-plugin/`、根部 `plugin.json`）、`scripts/validate.py`、`docs/`、`VERSION`——skills CLI 已负责发现/安装/更新，不再重复造轮子
-- `LICENSE-TODO.md` 并入 README License 节提醒（正式 LICENSE 待所有者选定）
+- 误加的 `LICENSE-TODO.md`——仓库自 Initial commit 起即为 MIT License
 
 ### 核心内容
 

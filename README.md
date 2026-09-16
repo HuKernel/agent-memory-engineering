@@ -124,4 +124,4 @@ npx skills add HuKernel/agent-memory-engineering --list   # 验证仓库可被�
 
 ## License
 
-尚未选择——公开分发前请先选定 LICENSE（见 Remaining Issues）。
+[MIT](LICENSE) © HuKernel
