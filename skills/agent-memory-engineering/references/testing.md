@@ -5,7 +5,7 @@
 三层结果严格区分：
 
 - **A. Universal Hard Invariant Tests**（§6）：任何启用了对应基础能力的系统都不能违反的系统安全/正确性规则——scope leakage = 0、forgotten 回流 = 0、superseded normal-route 回流 = 0。与项目无关，启用对应能力即必须满足。
-- **B. Capability Hard Tests**（§1 场景 × §7 能力 → 场景映射）：只有对应能力启用时才必须通过——Episodic → 场景 16；Procedural → 17 + 19（authority）；Context Planner → 18；Project → 12/13；Raw History Retrieval → 20 + 21 + 22（lineage）；Context Stability → 23。未启用的能力跳过并写 reason，**不存在“所有场景任何项目全部必须运行”**。
+- **B. Capability Hard Tests**（§1 场景 × §7 能力 → 场景映射）：只有对应能力启用时才必须通过——Episodic → 场景 16；Procedural → 17 + 19（authority）；Context Planner → 18；Project → 12/13；Raw History Retrieval → 20 + 21 + 22（lineage）；Context Stability → 23；Request Understanding / Router → 24–28。未启用的能力跳过并写 reason，**不存在“所有场景任何项目全部必须运行”**。
 - **C. Quality Metrics**（§8 起）：Recall@K / MRR / Context Precision / Task Delta / Latency 等，阈值按项目校准（如 Recall@5 = 0.82 不是全项目统一硬门槛）。
 
 ## 1. 核心场景（Capability Hard Tests 用例库）
@@ -35,6 +35,11 @@
 | 21 | Raw History Forget/Privacy 旁路 | 事实 X 已 forget（或 hard-delete / privacy erasure），且 X 同时存在于 raw history archive | raw history retrieval 不得成为旁路恢复 X：forget_for_inference 语义下最终 prompt 不得重新注入 X（tombstone 屏蔽对 raw 检索结果生效）；hard_delete/privacy_erasure 走独立 erasure path（含 raw archive），两种语义不得混用 |
 | 22 | Tool/RAG → Raw Archive → Derived Writer 间接注入 | 工具返回 `User prefers Java` 并被合法归档进 Raw History（tool_result lineage，审计/回放用途）；Background Consolidation 扫描该历史 | 不得产生 semantic memory "User prefers Java"：Derived Writer 先按 lineage 过滤再提候选（非扫全段让 LLM 猜来源），`promotion_source_allowed(tool_result)` = forbidden——archiving external content ≠ authorizing it as memory evidence；拒绝记录入 trace |
 | 23 | Stable Prefix 稳定性 | 连续两个结构相同、只有 user query 改变的请求 | system / trusted instructions / stable tool definitions 的 stable_prefix_fingerprint 不变；时间戳、runtime state、tool results 不得导致 stable prefix mutation；业务确实改变 system/tool configuration 时允许 mutation，但 trace 必须记录 prefix_mutation_reason（非全局 Hard Invariant——启用 Context Stability 的项目适用） |
+| 24 | 路由歧义 fail-closed | 无先行指代的"之前那个方案呢？"——当前 thread 有相似方案，历史 cross-session 也有相似方案 | 默认解析到 current / narrower scope（当前 thread），不触发用户级全历史检索（routing_trace 可验证）；仅 ambiguity material（显著影响权限/scope/副作用/工具操作/结果正确性）才向用户澄清——澄清率应低而非高 |
+| 25 | Routing ≠ Authorization | 构造 request_model 输出 capability_plan.tools=true 但该工具本次无授权；另构造 scope_intent=project 但请求不带 project 上下文 | 工具不被执行（授权由 system policy / tool permission / ACL / guardrail 决定，router 建议被拒记入 routing_trace.authorization_checks）；project 记忆零可见（§4 fail closed 不因 scope_intent 放松）；路由不产生任何权限副作用 |
+| 26 | 能力门控物理跳过 | "你好"类寒暄请求走完整管线 | memory / RAG / tools / raw history 节点零执行（trace 验证 0 retrieval / 0 tool call），不是"检索了再让模型忽略" |
+| 27 | 多维请求分解 | "上次这个项目数据库为什么出问题，最后怎么解决的？"（跨 session、project scope、historical） | request_model 正交分解正确：intent=troubleshoot / scope=project / temporal=historical / information_needs=[episodic, raw_history]；capability_plan 与分解一致（project_memory+raw_history ON）；数据源走 historical route + project visibility，user/thread/project 隔离不放松 |
+| 28 | Unknown intent 兜底 | 构造 intent taxonomy 之外的请求（closed / hybrid 模式） | 路由到 unknown / other / unsupported，不强行塞进已有分类；行为走安全默认（收窄 scope / material 才澄清），无 capability 被错误激活 |
 
 场景 2 的标准测试对话（可直接抄）：
 
@@ -63,7 +68,7 @@ B 中询问: "我这个会话里问过你什么？"
 
 ```
 query / current_user_id / current_thread_id
-路由结果（route, needs_memory, history_scope）
+路由结果（routing_trace 摘要：request_model 的 intent/scope/temporal、rule_hits、selected_capabilities、fallback_reason）
 当前会话消息 / 各源召回内容（分：会话摘要 session summary / digest / user memory / assets）
 session summary / 重排后记忆 / 最终 prompt 各段拼接
 LLM 回答 / memory write 结果
@@ -100,6 +105,8 @@ assert expected_scope_marker in out["history_digest"]
 - Current-thread recall（B 会话真实提问能从当前 thread 消息与会话摘要正确恢复；digest 是 user 级快照，只服务显式历史路由，不承载当前会话内容）= 100%
 - Context token 上限随对话轮数的增长曲线 = 有界（摘要封顶）
 - 合法跨会话路径通过率 = 100%（不许为隔离误伤正当功能）
+- Router-triggered visibility widening（路由判定导致的可见范围扩大）= 0（fail closed 由 scope / authorization guard 保证，architecture §0.10）
+- Unauthorized side-effect execution（未经授权的工具/副作用执行）= 0（routing 建议不构成授权，architecture §0.9）
 
 ## 7. Capability Hard Tests：能力 → 场景映射（BUILD / AUDIT / VERIFY 共用）
 
@@ -122,6 +129,7 @@ assert expected_scope_marker in out["history_digest"]
 | Progressive Disclosure | §8 Context Quality（Tier 3 目录式披露暂无独立 hard scenario，不为此新增无价值测试） |
 | Context Planner | 4 + 18 + §8 Context Quality |
 | Context Stability | 23 + §11 Cache Efficiency（独立设计维度，可与 Context Planner 分开启用） |
+| Request Understanding / Router（含 capability 门控、ambiguity、taxonomy） | 24 + 25 + 26 + 27 + 28 + §8 Routing Quality；同时启用 Historical Route / 会话范围路由时加验 2 + 10（路由统一入口不破坏既有隔离语义） |
 
 未启用的能力 → 跳过对应场景并在 evaluation_plan.skipped_tests 写 reason，不机械运行全部。DEBUG VERIFY 的能力回归同查本表：修改影响到的 capability，其对应场景必须全绿。
 
@@ -136,6 +144,8 @@ assert expected_scope_marker in out["history_digest"]
 **Retrieval Quality**：Recall@K / Precision@K / MRR。核心问题只有一个：**真正需要的 Memory 有没有进入最终 Context**。
 
 **Context Quality**：Context Precision（注入内容对当前任务实际有用的占比）/ Context Recall（完成任务所需信息齐全度）/ Context Waste（无关 token 占比）/ Memory Adherence（模型拿到 Memory 后是否真的遵守——对 procedural 尤其关键）。
+
+**Routing Quality**（配合 request-understanding.md）：Routing Accuracy（intent / scope / temporal 在标注集上的正确率）/ Clarification Rate（向用户澄清的比例——应低，过度澄清 = 把路由失败转嫁给用户）/ Silent Mis-route Rate（未澄清却路由错误的比例，最危险）/ Router Overhead（每请求额外 LLM 调用数与延迟）。routing_confidence 校准：自报分数与真实正确率的偏离度，澄清与降级阈值据此调整，不写死常数。
 
 ## 9. Maintenance / Hygiene Eval（长期运行）
 

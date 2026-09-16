@@ -4,6 +4,45 @@
 
 模式分组：**Core（§0–§8）** 所有启用长期记忆的项目默认适用（§1 Structured Core vs Raw History 是 Core Design Question、§2 Representation Strategy、§6 Context Stability 为设计决策维度，答案可为 required/optional/not_needed；§4 Raw History Retrieval 是按项目启用的 capability）；**Taxonomy（§9.1）** memory_type 正交分类模型（semantic/episodic/procedural），不属于“默认关闭的 Advanced Pattern”；**Advanced（§9.2–§9.9）** 默认关闭，BUILD 逐项输出 required / recommended / optional / not_needed + reason——唯一例外 §9.6：procedural memory 启用时自动强制（mandatory guardrail），不参与选配；**Optional（§10）** 特定领域才考虑；**Sources（§11）** 仅来源说明。禁止把 Advanced/Optional 当默认开启。
 
+## Runtime Information Architecture（统一运行时管线）
+
+本文与 request-understanding.md（请求理解与路由模式库）、testing.md（测试矩阵）共同构成 Agent Runtime Information Architecture 设计参考：Request Understanding 决定请求怎么被理解与调度，Memory（§1–§5、§9）决定跨 session 记什么/怎么读写，Context（§6、§9.4–§9.5）决定每个决策点让模型看到什么。运行时最高原则：
+
+```text
+Understand → Route → Retrieve → Plan Context → Act → Update → Evaluate
+```
+
+完整管线（Request Understanding 是统一入口；Memory / Context 机制即本文 §2–§9）：
+
+```text
+User Request
+     ↓
+Trusted Metadata / Session State（user_id / thread_id / project_id / active task）
+     ↓
+Request Understanding（request model：intent × scope × temporal × information needs × capability plan）
+     ↓
+Hard Scope / Authorization Guard（Routing suggests. Authorization decides. Visibility enforces.）
+     ↓
+Capability Plan 执行（capability_plan=false 的节点物理跳过，§6 能力门控）
+     ↓
+┌─────────────┬─────────────┬─────────────┬─────────────┐
+│   Memory    │  Knowledge  │    Tools    │ External SoT│
+│ (§2–§5/§9)  │    (RAG)    │             │  (实时查询)  │
+└─────────────┴─────────────┴─────────────┴─────────────┘
+     ↓
+Context Planner（§9.5）→ Context Assembly（§6，三段布局）
+     ↓
+LLM
+     ↓
+Response / Action
+     ↓
+State / Memory Update（§3 Writer Gate / §5 Forget / Task State）
+     ↓
+Evaluate（testing.md）
+```
+
+关键约束：Request Understanding 只产出 request model 与 capability **建议**——Memory 可见性仍由 §4 visible() 硬过滤决定，工具权限仍由 system policy / tool permission / ACL / user authorization 决定（§0.9–0.10）；"记住 X" 类请求只产生 memory_write_candidate，仍过 §3 Writer 全部门控；routing 输出属 Dynamic Runtime State，不污染 §6 Stable Prefix。请求理解与路由的模式库（Request Model / 路由分级 / taxonomy 推断 / ambiguity fail-closed / 收编表）见 request-understanding.md——现有会话范围路由、双路由、能力门控由其统一供给触发判定，实现不变。
+
 ## 0. Hard Invariant 与 Recommended Default
 
 **Hard Invariant**（与参数无关；启用对应基础能力后必须满足，测试必须覆盖——测试分层见 testing.md：Universal Hard Invariant / Capability Hard Tests / Quality Metrics）：
@@ -16,6 +55,8 @@
 6. SummarySegment 不可变；摘要深度 ≤ 1，禁止摘要套摘要。
 7. 可变状态不写长期记忆；**untrusted external context（工具结果/检索片段/RAG 内容）永不直接成为持久 memory**——对 interactive 与 derived 两类 candidate source 都成立（§3）。约束的是外部内容不得直接持久化，不是"每条候选必须直接来自对话消息"。
 8. 被 Forget 的事实不得回流最终 prompt——记忆/摘要/digest/缓存任何路径都不行；靠 tombstone 注入期屏蔽（见 §5），不靠"以记忆段为准"的仲裁声明。
+9. **Router 只选择候选、不授予权限**：routing 结果（capability_plan.tools=true、scope_intent=project 等）不构成 tool authorization、不扩大 Memory visibility——权限由 system policy / tool permission / application ACL / user authorization / guardrail 决定，可见性仍由 §4 visible() 硬过滤执行（Routing suggests. Authorization decides. Visibility enforces.，模式见 request-understanding.md §0）。
+10. **Intent 歧义 fail closed**：scope/temporal 无法确定时默认解析到 current / 更窄 scope，绝不用扩大信息可见范围来消除歧义（与第 4 条 scope 硬过滤、project fail closed 同族）；仅 material ambiguity（显著影响权限/scope/副作用/工具操作/结果正确性）才向用户澄清。
 
 **Recommended Default**（本文全部数字皆属此类：经验起点，应通过真实数据集与 eval 校准，不是架构真理）：
 
@@ -174,6 +215,8 @@ project 隔离 fail closed：`scope_allowed` 只在请求携带显式 project �
 - **normal route**（默认，一切普通问题）：只用上式，superseded 永不召回。
 - **historical route**（仅显式历史意图，如"以前/之前/曾经住哪"）：放开 status 与 valid_to 两条（SUPERSEDE 时 valid_to=now，对历史行它只是版本时间戳），允许 status='superseded' 并沿 superseded_by 链回溯；user/scope/project 隔离一条不放松，status='forgotten' 仍不可见（forget ≠ 历史）。触发判定与元问题路由同机制：LLM 判定 + 本地关键词兜底，普通问题一律走 normal route。
 
+双路由的触发判定统一来自 Request Understanding 的 `temporal_intent`（request-understanding.md §8.1 收编表）——判定实现（LLM + 关键词兜底）与本节可见性/隔离规则不变，Routing 只是统一入口。
+
 episodic 恢复带 **retention 前提**：只要 episode 未被 forget、未被 hard-delete / privacy erasure、仍在产品 retention policy 内，historical route 必须能从 active / cold / archive tier 恢复——进入 cold/archive tier 只影响普通召回显著性（salience decay），不剥夺 historical 恢复能力。forget / deletion / retention policy 优先于 historical recoverability。
 
 ```
@@ -259,7 +302,7 @@ system(固定) + [风格偏好] + [长期记忆(每条截断，top_k/总预算�
 | RAG | 文档库 | doc/owner | 20000 字 | 头尾块优先保，中间先截 |
 | 工具结果 | 工具/API 当次返回 | 当前请求（request-scoped） | 4000 字 | 已被后续结果取代的先丢 |
 
-- 能力门控：路由判定 needs\_memory/needs\_knowledge/needs\_tools 为 false 的模块**物理跳过节点**，不要"检索了再让模型忽略"。
+- 能力门控：Request Understanding 输出的 capability_plan 为 false 的模块**物理跳过节点**，不要"检索了再让模型忽略"。needs_memory / needs_knowledge / needs_tools 是 capability_plan 的最小键集（完整键集与路由分级见 request-understanding.md §7）。
 - **Tool Result 双生命周期语义**：**Runtime Tool Result**（默认）= request-scoped——只用于当前 context 与当前任务计算，请求结束后不得作为 active context 延续、不得成为 User Memory、不得自动参与后续请求（即 §1 External Context 行），也不是 Memory Writer 候选输入（§3 输入边界）。**Optional Tool Audit / Event Archive**：产品确有 audit / replay / provenance / debugging / historical task inspection 需求时，允许按 retention policy 把 tool call / tool result / tool metadata 保存进 Raw History / Event Archive——但必须带 `lineage=tool_result`，且 archive ≠ memory：`promotion_source_allowed(tool_result) = false`（§3），归档永不使其获得 Memory Evidence 权限。无 audit/history 需求的项目 archive = not_needed（YAGNI）。
 - 资产类可变数据注入时必须带仲裁声明："以本实时数据为准；若与长期记忆不一致，视为已删除/变更"。记忆段与会话摘要冲突时同理：以记忆段为准——但 forget 场景不能只靠这句仲裁，必须叠加 §5 的 tombstone 注入期屏蔽。
 - 上表字符预算是 **implementation fallback**（简单项目直接用）；启用 Context Planner 的项目升级为 token 预算动态分配（见 §9.5）。
@@ -351,7 +394,7 @@ cleanup low-value
 available_input_tokens = model_context_window - system_tokens - output_reserve - mandatory_context
 ```
 
-实现允许 character approximation，不强制 tokenizer 精确。**Context Planner** 输入：model_context_window / output_reserve / query_type / task_complexity / current_task / available_memory_types / needs_history / needs_rag / needs_tools / retrieval_confidence；输出 context_plan：
+实现允许 character approximation，不强制 tokenizer 精确。**Context Planner** 输入：model_context_window / output_reserve / query_type / task_complexity / current_task / available_memory_types / needs_history / needs_rag / needs_tools / retrieval_confidence——其中 query_type / task_complexity / needs_* 统一来自 Request Understanding 的 request_model（intent / scope / temporal / information_needs / capability_plan，request-understanding.md §8.3），Planner 消费而不重新判定。输出 context_plan：
 
 ```yaml
 context_plan:
@@ -366,7 +409,7 @@ context_plan:
   discoverable_context: {enabled: ...}   # Tier 3 目录
 ```
 
-**Query/task-aware 策略**：intent 决定 memory type 权重与块预算——寒暄 → 关 retrieval；“我喜欢什么” → semantic 高优；“上次这个 bug 怎么解决的” → episodic 高优；“这个项目代码怎么写” → project+procedural+RAG；“我以前住哪里” → historical semantic。与 §4 的 scope 维度路由（会话范围/双路由）互补，不替代。retrieval_confidence 低或缺上下文时允许第二轮 retrieval（经 Tier 3 主动补拉）。
+**Query/task-aware 策略**：intent 决定 memory type 权重与块预算（intent/scope/temporal 均来自 request_model）——寒暄 → 关 retrieval；“我喜欢什么” → semantic 高优；“上次这个 bug 怎么解决的” → episodic 高优；“这个项目代码怎么写” → project+procedural+RAG；“我以前住哪里” → historical semantic。与 §4 的 scope 维度路由（会话范围/双路由）互补，不替代。retrieval_confidence 低或缺上下文时允许第二轮 retrieval（经 Tier 3 主动补拉）。
 
 **双目标升级（High Signal + Bounded Tokens + Stable Prefix）**：Planner 在 relevance/token 之外增加 stability/cache friendliness 目标——段分配尊重 §6 三段布局，stable prefix 不因单次请求重排。context_strategy 属于 Context Architecture Decision，不强制新增 runtime schema：
 
@@ -433,10 +476,13 @@ procedural_candidate:
 
 ### 9.9 Production Observability（memory_trace）
 
-生产管线应能回答：为什么写/没写、为什么召回/没召回、为什么被 Planner 丢弃、最终回答是否用到。统一 trace：
+生产管线应能回答：为什么这么路由、为什么写/没写、为什么召回/没召回、为什么被 Planner 丢弃、最终回答是否用到。统一 trace：
 
 ```yaml
 memory_trace:
+  routing:   {request_model_summary, rule_hits, llm_router_invoked,
+              selected_capabilities, ambiguity, fallback_reason,
+              authorization_checks}   # 见 request-understanding.md §10
   write:     {candidates, accepted, rejected, rejection_reason}
   retrieval: {query, candidates, visibility_filtered, ranked, selected}
   context:   {planned_blocks, token_budget, dropped_items, drop_reason}
@@ -449,7 +495,7 @@ memory_trace:
 
 Context Stability 观测是 §6 Cache Efficiency 指标的数据源：provider 提供真实 cache hit 信息时**记录真实值**；不提供时 `cache_hit = unknown / not_applicable`，**不得推测**。
 
-attribution 语义：`attributed_memory_ids / attribution_confidence` 是 **observability signal，不是 causal ground truth**——"Memory 是否真正提升结果"主要由 testing.md §10 的 End-task Delta Eval（No Memory vs Memory vs Oracle）判定。存储按 dev mode / sampling / debug mode 分级，不要求永久全量。
+attribution 语义：`attributed_memory_ids / attribution_confidence` 是 **observability signal，不是 causal ground truth**——"Memory 是否真正提升结果"主要由 testing.md §10 的 End-task Delta Eval（No Memory vs Memory vs Oracle）判定。存储按 dev mode / sampling / debug mode 分级，不要求永久全量；routing 段不得永久记录 raw user text（除非产品 retention / privacy 明确允许，request-understanding.md §10）。
 
 ## 10. Optional Specialized Patterns（特定领域才考虑）
 
@@ -470,7 +516,10 @@ attribution 语义：`attributed_memory_ids / attribution_confidence` 是 **obse
 仅作来源说明，不构成运行时依赖——以下思想已全部工程化为本文自包含规则，Skill 运行不访问外部材料：
 
 - 李博杰《深入理解 AI Agent：设计原理与工程实践》（开源主仓库 `bojieli/ai-agent-book`）：
-  - **Chapter 2 上下文工程**：静态前缀 + 动态轨迹结构、“动态信息永远追加到末尾”、KV/Prompt Cache 友好布局（时间戳注入 system prompt 导致缓存失效的教训）、压缩双动机（长度约束 + 信息密度/思考质量）、压缩保留优先级、Agent Skills 渐进式披露（目录 → 按需加载）→ 对应本文 §5 Compression Principle、§6 Context Stability、§9.4、§9.5。
+  - **Chapter 1 Agent 基础**：Agent = LLM + Context + Tools；LLM 承担 understanding / reasoning / planning / decision → 对应 request-understanding.md 的定位：routing 是把 LLM 的理解转化为系统能力调度的桥，本身不是新的"智能层"。
+  - **Chapter 2 上下文工程**：静态前缀 + 动态轨迹结构、“动态信息永远追加到末尾”、KV/Prompt Cache 友好布局（时间戳注入 system prompt 导致缓存失效的教训）、压缩双动机（长度约束 + 信息密度/思考质量）、压缩保留优先级、Agent Skills 渐进式披露（目录 → 按需加载）→ 对应本文 §5 Compression Principle、§6 Context Stability、§9.4、§9.5，以及 request-understanding.md §7（routing 只选 namespace 不注入内容）、§8.4（routing 输出不进 Stable Prefix）。
   - **Chapter 3 用户记忆和知识库**：四种存储格式（Simple Notes / Enhanced Notes / JSON Cards / Advanced JSON Cards）、三套正交分类（记忆层次 × 存储格式 × 认知类型）、轨迹 append-only（“轨迹是流水账，长期记忆是档案”）、双层记忆架构（结构化卡片常驻提供概览 + 检索按需提供细节）、对话历史本身即知识库、上下文感知检索（索引期前缀）、记忆压缩与整理（筛选/聚类/抽象泛化）→ 对应本文 §1 Structured Core + Raw History、§2 Representation Strategy、§4 Raw History Retrieval、§9.2/§9.3。
+  - **Chapter 7 Agent 评估**：评估驱动校准（指标先行、阈值来自真实数据而非拍脑袋）→ 对应 request-understanding.md §6（routing_confidence 阈值经 eval 校准，自报分数不当真实概率）与 testing.md §8 Routing Quality。
+- 主流 Agent 工程共识（不绑定框架，仅来源说明）：Anthropic《Building Effective Agents》《Effective Context Engineering for AI Agents》、OpenAI Agents SDK（handoffs / guardrails）、LangGraph（routing / structured output / conditional edges）——simplest sufficient router、structured output 路由、handoff vs agent-as-tool、guardrail 与路由分离 → 工程化为 request-understanding.md §2（Level 0–5）、§4（混合路由）、§9（Handoff vs Agent-as-Tool）、§0（Routing ≠ Authorization）。
 - 本仓库生产系统实践（FastAPI + LangGraph + PostgreSQL/pgvector）——scope 隔离、Forget/tombstone、Writer 门控、procedural authority boundary、双路由、三层测试分类等 Core 机制来自线上真实故障与修复。
-- Stable Prefix / Semi-stable / Dynamic Tail 三分段命名、`raw_history_reference` 表示、Cache Efficiency / Representation Fitness 评估指标为基于上述来源的**工程化扩展**，非原书原文。
+- Stable Prefix / Semi-stable / Dynamic Tail 三分段命名、`raw_history_reference` 表示、Cache Efficiency / Representation Fitness 评估指标、Request Understanding & Routing 的 Request Model / 路由分级 / 收编表为基于上述来源的**工程化扩展**，非原书原文。

@@ -2,6 +2,22 @@
 
 本文件记录仓库打包形态与核心方法论的显著变更。格式参考 Keep a Changelog，版本遵循 SemVer。
 
+## [1.3.0] - 2026-09-16
+
+### Added
+
+- **Request Understanding & Intent Routing**：新增 `references/request-understanding.md` 模式库——多维 Request Model（intent × scope × temporal × information needs × action × capability_plan，正交、多意图）、Routing 分级 Level 0–5（simplest sufficient router）、Intent Taxonomy 从产品推断（closed/open/hybrid + unknown 兜底 + positive/boundary/counterexample 样本）、混合路由（确定性信号优先 + 结构化 LLM 理解）、Ambiguity fail-closed（仅 material 才澄清）、confidence 语义（自报分数非校准概率，阈值经 eval 校准）、Capability Routing（false 物理跳过）、Handoff vs Agent-as-Tool、routing_trace（不永久记录 raw user text）
+- 统一 Runtime Pipeline：architecture.md 开篇新增「Runtime Information Architecture」集成图（Request Understanding → Scope/Authorization Guard → Capability Activation → Memory/Knowledge/Tools/External → Context Planner → LLM → Update → Evaluate）
+- Hard Invariant 新增两条：§0.9 Router 只选择候选不授予权限（Routing suggests. Authorization decides. Visibility enforces.）、§0.10 Intent 歧义 fail closed
+- testing.md 新增场景 24–28（路由歧义 fail-closed / Routing ≠ Authorization / 能力门控物理跳过 / 多维请求分解 / unknown intent 兜底）与 §8 Routing Quality 指标组（Routing Accuracy / Clarification Rate / Silent Mis-route Rate / Router Overhead / confidence 校准）
+
+### Changed
+
+- 现有路由能力**收编**进 Request Understanding 统一入口、实现不变：会话范围路由与 Normal/Historical 双路由的触发判定 ← scope_intent + temporal_intent；能力门控 needs_memory/needs_knowledge/needs_tools ← capability_plan 最小键集；Writer 预判 memory_write_candidate、forget 识别、Context Planner 的 query_type/task_complexity 同步对齐（收编表见 request-understanding.md §8.1）
+- SKILL.md：标题与简介升级为 Agent Runtime Information Architecture 三支柱；铁律新增第 9 条（Routing 只建议不授权）；BUILD 的 DISCOVER 增加 routing_requirements + Intent Space 推断、DESIGN 增加 Routing Strategy 选型、EVALUATE/VERIFY 纳入场景 24–28；memory_trace 扩展 routing 段
+- SKILL.md description 触发词扩展：intent routing / 意图识别 / 意图路由 / request understanding / agent runtime architecture
+- architecture.md §11 设计来源补充：原书 Chapter 1（Agent = LLM + Context + Tools）、Chapter 7（Agent Evaluation），以及主流工程共识（Anthropic Building Effective Agents / Effective Context Engineering、OpenAI Agents SDK handoffs & guardrails、LangGraph routing / structured output / conditional edges）
+
 ## [1.2.0] - 2026-09-16
 
 ### Changed
