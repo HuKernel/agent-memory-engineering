@@ -2,6 +2,8 @@
 
 生产验证过的完整设计。定位：**Pattern Library / 设计参考**，不是必须照抄的固定架构——BUILD Workflow 按产品需求选择需要的层与机制，不默认全部启用；偏离本文模式必须说明理由。原则：**用现有字段组合表达分层，不为架构图好看建新表**。
 
+模式分组：**Core（§0–§8）** 所有启用长期记忆的项目默认适用；**Advanced（§9）** 按项目条件选配，BUILD 逐项输出 required / recommended / optional / not_needed + reason；**Optional（§10）** 特定领域才考虑。禁止把 Advanced/Optional 当默认开启。
+
 ## 0. Hard Invariant 与 Recommended Default
 
 **Hard Invariant**（与参数无关，任何实现都必须满足，测试必须覆盖）：
@@ -172,6 +174,7 @@ system(固定) + [风格偏好] + [长期记忆(每条截断，top_k/总预算�
 - 能力门控：路由判定 needs\_memory/needs\_knowledge/needs\_tools 为 false 的模块**物理跳过节点**，不要"检索了再让模型忽略"。
 - 工具结果 request-scoped：生命周期 = 单次请求（即 §1 External Context 行），请求结束即失效，不进任何长期存储，也不是 Memory Writer 候选输入（§3 输入边界）。
 - 资产类可变数据注入时必须带仲裁声明："以本实时数据为准；若与长期记忆不一致，视为已删除/变更"。记忆段与会话摘要冲突时同理：以记忆段为准——但 forget 场景不能只靠这句仲裁，必须叠加 §5 的 tombstone 注入期屏蔽。
+- 上表字符预算是 **implementation fallback**（简单项目直接用）；启用 Context Planner 的项目升级为 token 预算动态分配（见 §9.5）。
 
 ## 7. 反注入与安全
 
@@ -182,4 +185,120 @@ system(固定) + [风格偏好] + [长期记忆(每条截断，top_k/总预算�
 
 - Phase 1 正确性：写/读路径的 scope 隔离、冲突证据优先级、重复清理——零 Schema 变更。
 - Phase 2 表达力：project/task 等新维度，**等产品层出现对应概念再建**；迁移走幂等补列（ADD COLUMN IF NOT EXISTS）。旧行 NULL **不得自动解释为 global**：scope=NULL 是未知 scope，`scope='global' AND scope_id=NULL` 才是合法 global memory。旧 schema 历史定义能明确证明 NULL==global 的，迁移时显式 backfill `scope='global'`；证明不了的 fail closed——不参与正常召回，直到完成迁移/归类。不为 backward compatibility 扩大可见范围。
-- Phase 3 预算：按问题类型分档 token 预算（普通/项目技术/知识/个人各不同权重），一次路由字段改动。
+- Phase 3 预算：按问题类型分档 token 预算（普通/项目技术/知识/个人各不同权重），一次路由字段改动——即 §9.5 Context Planner 的静态雏形。
+
+## 9. Advanced Patterns（按项目条件选配）
+
+BUILD Workflow 在 DESIGN 阶段逐项判定 required / recommended / optional / not_needed 并给 reason；本节模式**默认全部不启用**。
+
+### 9.1 Memory Type 第二维度：semantic / episodic / procedural
+
+七层回答"存哪里/谁可见/活多久"；memory_type 回答"这是什么性质的信息、如何被使用"。**两轴正交**：User+Semantic、Project+Semantic、Project+Episodic、Agent/Project+Procedural 都是合法组合。复用 §2 现有 `memory_type` 字段，值域扩展：
+
+- **semantic**：稳定事实/偏好/约束/属性（"用户喜欢深色主题""项目用 PostgreSQL"）——现有 memory 表主体，无增量成本。
+- **episodic**：过去的任务/尝试/结果/成败经验（"上次部署失败是 migration 未锁表"）。`structured_data` 记 `{outcome, task_type, entities}`。注意：episodic 不因新事实 supersede——旧 episode 是真实历史，只能 forget，不会"过期"。
+- **procedural**：Agent 行动规则/策略/技能（"migration 前必须检查 lock strategy"）。检索时作为 instruction 注入；默认不修改 system prompt（见 9.6）。
+
+选型参考：普通聊天 Agent = semantic required / episodic optional / procedural not_needed；Coding/长任务 Agent = semantic+episodic required / procedural recommended。不默认全开。
+
+### 9.2 Hot Path + Background Consolidation（双路径形成）
+
+- **Hot Path**（默认）：用户明确"记住/改成/搬到"类陈述 → 立即走 §3 现有管线，无新机制。
+- **Background Consolidation**（可选，默认关）：多轮行为模式 / 重复反馈 / 相似 episode 簇 / 记忆碎片，由异步批任务处理：
+
+  ```text
+  raw interactions → pattern candidate → evidence count → confidence
+  → conflict check → promotion（仍走 §3 门控写入）
+  ```
+
+  硬约束：① background 推断永不覆盖 explicit（铁律 6 的延伸，产出按 inferred_strong 起步）；② 不进用户当前响应 critical path；③ 项目不需要可整体禁用。例：过去 15 次用户都要求"先解释再给完整代码" → background 产出 candidate preference，过门控后才落库。
+
+### 9.3 Memory Maintenance / Hygiene（长期运行）
+
+写入时 dedup/conflict/supersede/forget（§3/§5）解决不了长期碎片化。触发条件（Recommended Default）：memory_count 超阈值 / duplicate_density 或 contradiction_density 过高 / 长期未访问 / episodic 大量积累 / 同一模式反复 reinforcement。可执行操作：
+
+```text
+merge duplicates / cluster similar episodes / supersede stale
+promote repeated episode → semantic / promote repeated strategy → procedural
+cleanup low-value
+```
+
+硬约束：**不改写 explicit user fact**（只能 supersede/forget，不许顺手润色）；一切 promotion/consolidation 在 `structured_data` 保留 provenance：`{derived_from: [memory_ids], consolidated_at, policy_version}`。维护是批任务，不在请求路径上。
+
+### 9.4 Progressive Disclosure（三层上下文）
+
+- **Tier 1 Core/Pinned**：当前任务、安全规则、项目硬约束、用户明确的重要限制。极小、永不丢。
+- **Tier 2 Retrieved**：按 query 召回的相关 user/project memory、episodic、RAG——即 §6 Context Builder 主体。
+- **Tier 3 Discoverable**：不注入内容，只注入目录（namespace / index / category / file path / metadata），Agent 发现缺上下文时主动 search/open/retrieve：
+
+  ```text
+  Available memory namespaces:
+    project-decisions/  past-incidents/  user-preferences/  successful-solutions/
+  ```
+
+选型：短聊天 bot = not needed；coding/research/长任务 = recommended；超大项目 = required。§6 现有设计 = Tier 1+2，Tier 3 纯增量。
+
+### 9.5 Context Planner 与 Token 预算
+
+现有 §6 静态字符预算保留为 fallback；启用 Planner 后升级为请求级动态分配：
+
+```text
+available_input_tokens = model_context_window - system_tokens - output_reserve - mandatory_context
+```
+
+实现允许 character approximation，不强制 tokenizer 精确。**Context Planner** 输入：model_context_window / output_reserve / query_type / task_complexity / current_task / available_memory_types / needs_history / needs_rag / needs_tools / retrieval_confidence；输出 context_plan：
+
+```yaml
+context_plan:
+  pinned:               {budget_tokens: ...}
+  recent_messages:      {budget_tokens: ...}
+  session_summary:      {enabled: ..., budget_tokens: ...}
+  semantic_memory:      {enabled: ..., budget_tokens: ..., top_k: ...}
+  episodic_memory:      {enabled: ..., budget_tokens: ..., top_k: ...}
+  procedural_memory:    {enabled: ..., budget_tokens: ...}
+  rag:                  {enabled: ..., budget_tokens: ...}
+  tool_results:         {enabled: ..., budget_tokens: ...}
+  discoverable_context: {enabled: ...}   # Tier 3 目录
+```
+
+**Query/task-aware 策略**：intent 决定 memory type 权重与块预算——寒暄 → 关 retrieval；"我喜欢什么" → semantic 高优；"上次这个 bug 怎么解决的" → episodic 高优；"这个项目代码怎么写" → project+procedural+RAG；"我以前住哪里" → historical semantic。与 §4 的 scope 维度路由（会话范围/双路由）互补，不替代。retrieval_confidence 低或缺上下文时允许第二轮 retrieval（经 Tier 3 主动补拉）。
+
+### 9.6 Procedural Memory 安全边界
+
+procedural 默认是 **retrievable instruction**（检索注入），不是自动永久修改 system prompt。升级为 persistent agent instruction 必须走：promotion candidate → eval → explicit approval / trusted automation policy → promotion。防止 Agent 越学越偏。
+
+### 9.7 Episodic → Procedural Learning
+
+启用 episodic+procedural 的项目可加学习环：episode → repeated evidence → reflection candidate → evaluation（含 counterexample check）→ procedural memory。例：三次 migration 锁表 episode → 候选规则"migration 前检查 lock strategy"。一次 episode 不得直接改行为；minimum evidence / confidence 是 Recommended Default，由 eval 校准。
+
+### 9.8 Entity-aware Retrieval（可选增强）
+
+§4 管线保留，加一路候选来源：query 实体识别（如 "Redis"）→ semantic + keyword/BM25 + **entity match**（`structured_data.entities`）三路候选统一 rerank。复用现有 JSONB，不引入 Graph DB。
+
+### 9.9 Production Observability（memory_trace）
+
+生产管线应能回答：为什么写/没写、为什么召回/没召回、为什么被 Planner 丢弃、最终回答是否用到。统一 trace：
+
+```yaml
+memory_trace:
+  write:     {candidates, accepted, rejected, rejection_reason}
+  retrieval: {query, candidates, visibility_filtered, ranked, selected}
+  context:   {planned_blocks, token_budget, dropped_items, drop_reason}
+  usage:     {injected_memory_ids, cited_or_used_memory_ids}
+```
+
+存储按 dev mode / sampling / debug mode 分级，不要求永久全量。
+
+## 10. Optional Specialized Patterns（特定领域才考虑）
+
+### 10.1 Graph Memory
+
+仅当出现大量实体关系、多跳关系查询、关系随时间变化、复杂历史事实才考虑（Graph DB / Temporal KG）。**默认输出 `graph_memory: {enabled: false, reason: "普通 User Memory 不需要图结构"}`**，不默认建议 Neo4j/Graphiti。
+
+### 10.2 Bi-temporal Memory
+
+仅当 CRM / finance / operations / 医疗·商业时间线类项目。区分"事实何时发生 vs Agent 何时知道"：`structured_data` 加 `{event_time, observed_at}`（例：用户 9/10 搬家、9/15 才告诉 Agent），不改基础 schema 列。
+
+### 10.3 Multi-Agent / Shared Memory
+
+仅当检测到 multiple agents / shared team state / organization knowledge / 协作。基础 scope 枚举（global/thread/project）**不动**；未来确需时以 owner_type / owner_id / namespace / ACL 作为 §8 式 migration pattern 引入，不预先抽象。

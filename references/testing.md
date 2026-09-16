@@ -2,6 +2,8 @@
 
 来自真实 bug 的测试集。每个用例都对应一次线上真实故障或高危路径，不是想象出来的覆盖。定位：**测试矩阵 / 评估库**——BUILD / AUDIT / VERIFY 按项目启用的能力选择适用场景，不机械运行全部。术语按 SKILL.md 约定：thread == conversation == 会话。
 
+两类结果严格区分：**Hard Invariant Test**（§1 十五场景 + §6 泄漏/回流类指标，必须满足，如 cross-session leakage = 0）与 **Quality Metric**（§8 起，阈值按项目校准，如 Recall@5 = 0.82 不是全项目统一硬门槛）。
+
 ## 1. 十五大核心场景
 
 | # | 场景 | 构造 | 断言 |
@@ -99,5 +101,36 @@ assert expected_scope_marker in out["history_digest"]
 | 多用户 | 12（user isolation 部分） |
 | Project | 12（project isolation 部分）+ 13 |
 | Summary / 长会话 | 4；同时支持 Forget 时加验 11 的 Ghost Summary 断言 |
+| Episodic Memory | 10（历史语义部分）+ §8 Retrieval Quality |
+| Procedural Memory | §8 Memory Adherence（遵守率）+ architecture §9.6 安全边界（不得自动改 system prompt） |
+| Background Consolidation | 5（background 产出一律按 inferred 门控，永不覆盖 explicit） |
+| Progressive Disclosure / Context Planner | 4 + §8 Context Quality |
 
 未启用的能力 → 跳过对应场景并在 evaluation_plan.skipped_tests 写 reason，不机械运行全部。DEBUG VERIFY 的能力回归同查本表：修改影响到的 capability，其对应场景必须全绿。
+
+## 8. Quality Evaluation（Metric，阈值按项目校准）
+
+**Write Quality**：Write Precision（写入中真值得长期保存的比例）/ Write Recall（应记的重要事实漏记率）/ Conflict Accuracy（REINFORCE/SUPERSEDE/IGNORE 判定正确率）/ Scope Accuracy（global/thread/project 分类正确率）。
+
+**Retrieval Quality**：Recall@K / Precision@K / MRR。核心问题只有一个：**真正需要的 Memory 有没有进入最终 Context**。
+
+**Context Quality**：Context Precision（注入内容对当前任务实际有用的占比）/ Context Recall（完成任务所需信息齐全度）/ Context Waste（无关 token 占比）/ Memory Adherence（模型拿到 Memory 后是否真的遵守——对 procedural 尤其关键）。
+
+## 9. Maintenance / Hygiene Eval（长期运行）
+
+- Generalization Quality：多次类似 Episode 是否沉淀为正确稳定的规则（配合 architecture §9.7 学习环）。
+- Hygiene 曲线：duplicate rate / contradiction rate / stale rate / fragmentation 随运行时间**不恶化**（配合 architecture §9.3 维护任务）。
+
+## 10. End-task Delta Eval（最重要）
+
+三档对比回答"Memory 到底有没有帮到 Agent"：
+
+```text
+No Memory  vs  Memory Enabled  vs  Oracle Context（人工构造的理想上下文）
+```
+
+指标：task success rate / answer quality / user correction rate / latency / token cost。期望 Memory Enabled 显著优于 No Memory、逼近 Oracle；不成立时先修 Memory，再谈其他优化。
+
+## 11. Cost / Latency Eval
+
+retrieval latency / writer latency / background consolidation cost / tokens injected / vector queries per request / LLM calls per request。汇总为 **Quality Gain / Token** 与 **Quality Gain / Latency** 两个 trade-off 视角（不设固定公式）——BUILD / AUDIT 用它检验"某个高级模式值不值"。

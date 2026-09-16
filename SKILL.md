@@ -48,7 +48,7 @@ description: >
 
 ## BUILD 工作流：DISCOVER → MODEL → DESIGN → MAP → IMPLEMENT → EVALUATE
 
-为"从零设计 / 重建 / 接入 Memory System"的项目服务。`references/architecture.md` 是**模式库不是模板**——每一步都在做"选择 + 说理由"，不是照抄全套。全程约束：铁律 1–8、YAGNI、复用现有栈、minimal change、可测试。
+为"从零设计 / 重建 / 接入 Memory System"的项目服务。`references/architecture.md` 是**模式库不是模板**——每一步都在做"选择 + 说理由"，不是照抄全套；DESIGN 阶段必须完成 **Layer / Memory Type / Advanced Pattern / Context Strategy** 四项选择，流程不另加阶段。全程约束：铁律 1–8、YAGNI、复用现有栈、minimal change、可测试；最高取舍序 **Correctness → Relevance → Adaptivity → Maintainability → Efficiency**，复杂度只在有理由时引入。
 
 ### 1. DISCOVER —— 理解产品，而不是立刻套架构
 
@@ -77,10 +77,14 @@ product_context:
 
 ```text
 信息 → 生命周期(long/task/session/request) → scope(global/thread/project)
-     → Source of Truth → 是否长期记忆 → Storage → Retrieval Route
+     → memory_type(semantic/episodic/procedural) → Source of Truth
+     → 是否长期记忆 → Storage → Retrieval Route
 ```
 
-例：「用户喜欢深色主题」→ 长期 / global / 用户明确陈述 → **是**长期记忆 → memory 表 → 正常召回。
+memory_type 与 scope/生命周期**正交**（architecture.md §9.1）：semantic = 稳定事实/偏好，episodic = 过去任务的成败经验，procedural = Agent 行动规则——组合如 User+Semantic、Project+Episodic 都是合法的。
+
+例：「用户喜欢深色主题」→ 长期 / global / semantic / 用户明确陈述 → **是**长期记忆 → memory 表 → 正常召回。
+例：「上次部署失败因 migration 未锁表」→ 长期 / project / episodic → **是**长期记忆（历史经验，不因新事实过期）。
 例：「当前任务完成 70%」→ task / task state 是 SoT → **不是**长期记忆 → 结构化运行态 → 实时读取。
 
 最常见反模式 = 把所有东西塞进 Memory Table。分类结果就是选层与写策略的输入。
@@ -100,7 +104,34 @@ selected_layers:
   external:  {enabled: true}
 ```
 
-必须能回答：**为什么这个项目需要这一层、为什么不需要另一层**。随后按 architecture.md 模式设计：Writer 门控 / Visibility / 冲突消解 / Forget / 检索与双路由 / 摘要 / Context Builder / 预算 / RAG 与 Tool 隔离。偏离模式库的每一处都要写理由；没有理由就照模式库。
+必须能回答：**为什么这个项目需要这一层、为什么不需要另一层**。同样输出 memory_type 与 advanced_patterns（architecture.md §9–§10，逐项 status + reason，默认 not_needed）：
+
+```yaml
+memory_types:
+  semantic:    {enabled: true,  reason: "用户偏好与约束"}
+  episodic:    {enabled: true,  reason: "跨会话复用排障经验"}
+  procedural:  {enabled: false, reason: "个人聊天 Agent，无稳定行动规则"}
+
+advanced_patterns:
+  background_consolidation: {status: recommended}   # §9.2
+  progressive_disclosure:   {status: not_needed}    # §9.4
+  context_planner:          {status: optional}      # §9.5
+  entity_retrieval:         {status: optional}      # §9.8
+  graph_memory:             {status: not_needed}    # §10.1
+  bitemporal_memory:        {status: not_needed}    # §10.2
+  shared_memory:            {status: not_needed}    # §10.3
+```
+
+status 只能取 required / recommended / optional / not_needed；**敢于输出 not_needed** 是本 skill 的正确行为，不是遗漏。随后按 architecture.md 模式设计：Writer 门控 / Visibility / 冲突消解 / Forget / 检索与双路由 / 摘要 / Context Builder / 预算（启用 Planner 时按 §9.5 token 化）/ RAG 与 Tool 隔离。偏离模式库的每一处都要写理由；没有理由就照模式库。关键取舍记入 architecture_decisions，让用户知道"为什么没用某个高级方案"：
+
+```yaml
+architecture_decisions:
+  - pattern: graph_memory
+    decision: not_needed
+    reason: "只需要用户偏好与简单项目事实，无多跳关系查询"
+    alternatives_considered: ["pgvector + entities JSONB"]
+    why_not: "无关系遍历需求，图库是纯负担"
+```
 
 ### 4. MAP —— 映射到现有技术栈
 
@@ -126,12 +157,15 @@ FastAPI + LangGraph + PostgreSQL/pgvector 只是参考实现，不是要求。
 memory_system_blueprint:
   product_model:               # DISCOVER 结论
   selected_layers:             # DESIGN 结论
+  memory_types:                # DESIGN 结论（semantic/episodic/procedural）
+  advanced_patterns:           # DESIGN 结论 + architecture_decisions
   information_mapping:         # MODEL 结论
   write_policy:                # what_to_store / what_not_to_store / explicit_vs_inferred
-                                # / dedup / conflict_resolution / forget
+                               # / dedup / conflict_resolution / forget / background_consolidation
   retrieval_policy:            # visibility / normal_route / historical_route
-                                # / hybrid_retrieval / reranking
+                               # / hybrid_retrieval / reranking / entity_retrieval
   context_policy:              # blocks / priority / budgets / drop_policy
+                               # / progressive_disclosure / context_planner（§9.5）
   summary_policy:
   storage_design:              # 表 schema / 向量库 / 缓存 key 设计
   implementation_components:   # Pattern → 现有组件清单
@@ -140,7 +174,7 @@ memory_system_blueprint:
 
 ### 6. EVALUATE —— 按能力选测试，不机械全跑
 
-按 `references/testing.md` §7「能力 → 场景映射」选择（如：有长期 User Memory → 必测 1/5/6/7/14；支持 Forget → 11/15；无 project → 跳过 13 并写 reason）。未启用的能力跳过对应场景并在 skipped_tests 写 reason，不机械全跑。
+按 `references/testing.md` §7「能力 → 场景映射」选择（如：有长期 User Memory → 必测 1/5/6/7/14；支持 Forget → 11/15；无 project → 跳过 13 并写 reason）。未启用的能力跳过对应场景并在 skipped_tests 写 reason，不机械全跑。Hard Invariant 场景之外，再按 testing.md §8–§11 选 Quality Eval（write / retrieval / context / maintenance / end-task delta / cost）——**Metric 阈值按项目校准，不是全项目统一硬门槛**。
 
 ```yaml
 evaluation_plan:
@@ -149,7 +183,12 @@ evaluation_plan:
   skipped_tests:
     - test: 场景 9
       reason: "无 RAG，仅保留工具结果断言"
+  quality_metrics: []          # 选用的 §8–§11 指标 + 项目校准阈值
 ```
+
+### 7. 运行期 —— OBSERVE / MAINTAIN（IMPLEMENT 之后）
+
+上线不是终点：接 memory_trace 观测（§9.9：write / retrieval / context / usage 四段），按 §9.3 触发条件跑 Memory Hygiene（merge / supersede / promote，保留 provenance、不动 explicit），用 testing.md §9–§10 的 Hygiene 曲线与 End-task Delta 持续验证 Memory 真的在帮 Agent。
 
 ## AUDIT 工作流（只读体检，默认不改代码）
 
@@ -246,3 +285,5 @@ affected_scope:              # 受影响的 scope 与查询路径
 **摘要防漂移**：不可变分段（每段覆盖固定条数消息、从原文生成一次、永不再摘要），会话摘要 = 段拼接，超预算才做一次"深度 1"合并。摘要的摘要 = 事实漂移之源。最近窗口原文进 prompt，窗口外才进摘要。Forget 不重写摘要——tombstone 在注入期屏蔽。
 
 **上下文组装**：分层预算 + 各段独立上限（最近窗口/摘要/记忆/RAG/工具结果），溢出截断保头尾关键块；能力门控（路由判定不需要的模块物理跳过，不是 prompt 里说"忽略"）。
+
+**高级模式选配**：semantic / episodic / procedural 与七层正交（§9.1）；background consolidation、progressive disclosure（Tier 3 目录式上下文）、context planner（token 级动态预算 + query-aware 策略）、entity retrieval、memory hygiene 按项目条件选配（§9）；graph / bi-temporal / multi-agent shared memory 仅特定领域（§10）。BUILD 逐项输出 required / recommended / optional / not_needed + reason，默认不开——敢于说 not_needed 是正确行为。
