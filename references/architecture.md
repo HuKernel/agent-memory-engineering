@@ -50,8 +50,8 @@ rerank_weights = 语义 0.40 / 字面 0.15 / importance 0.15 / confidence 0.10
 
 七层回答存取与隔离；长期信息系统还有一条正交设计问题——**结构化核心 vs 原始历史**。这是 **Core Design Question**：所有 BUILD 必答三问——是否保留 raw source？是否需要 searchable raw history？是否需要 Overview → Detail？——但答案可以是 required / optional / not_needed，**不是所有启用长期记忆的项目都必须有 Searchable Raw History**：
 
-- **Structured Core Memory**：少量、高价值、稳定、跨任务有用、已压缩/结构化的信息——用户偏好、长期约束、项目关键决策、稳定工作方式、重要实体关系。即 §2 memory 表承载的主体（semantic/episodic/procedural/decision cards）。对启用长期记忆的项目通常 required。
-- **Raw History Archive**：原始 messages、trajectory、tool interaction history（按 retention policy）、event history。职能——按需 historical retrieval / evidence recovery / provenance / detail lookup，**不是每轮进 context**。其检索能力（§4 Raw History Retrieval）是**按项目启用的 capability**。
+- **Structured Core Memory**：少量、高价值、稳定、跨任务有用、已压缩/结构化的信息——用户偏好、长期约束、项目关键决策、稳定工作方式、重要实体关系。即 §2 memory 表承载的主体（semantic / episodic / procedural cards；决策等领域经 `domain` 字段表达，如 `domain='decision'`）。对启用长期记忆的项目通常 required。
+- **Raw History Archive**：原始 messages、trajectory、tool interaction history（按 retention policy，tool 归档语义见 §6 双生命周期）、event history。职能——按需 historical retrieval / evidence recovery / provenance / detail lookup，**不是每轮进 context**。其检索能力（§4 Raw History Retrieval）是**按项目启用的 capability**。
 
 选型参考：简单 preference chatbot = Structured Core required / Searchable Raw History not_needed（YAGNI——**不为长期记忆自动创建 raw-history vector index**）；Coding / Research Agent = Structured Core required / Raw History Retrieval recommended 或 required。
 
@@ -73,8 +73,8 @@ append-only 指**不为摘要/Memory 更新而重写**，不表示不可因 rete
    Structured Core        Raw History Archive
           │                     │
  semantic / episodic       raw messages
- procedural / decision     trajectory
- cards                     source evidence
+ procedural cards          trajectory
+ (+ domain e.g. decision)  source evidence
           │                     │
           └──────────┬──────────┘
                      │
@@ -260,7 +260,7 @@ system(固定) + [风格偏好] + [长期记忆(每条截断，top_k/总预算�
 | 工具结果 | 工具/API 当次返回 | 当前请求（request-scoped） | 4000 字 | 已被后续结果取代的先丢 |
 
 - 能力门控：路由判定 needs\_memory/needs\_knowledge/needs\_tools 为 false 的模块**物理跳过节点**，不要"检索了再让模型忽略"。
-- 工具结果 request-scoped：生命周期 = 单次请求（即 §1 External Context 行），请求结束即失效，不进任何长期存储，也不是 Memory Writer 候选输入（§3 输入边界）。
+- **Tool Result 双生命周期语义**：**Runtime Tool Result**（默认）= request-scoped——只用于当前 context 与当前任务计算，请求结束后不得作为 active context 延续、不得成为 User Memory、不得自动参与后续请求（即 §1 External Context 行），也不是 Memory Writer 候选输入（§3 输入边界）。**Optional Tool Audit / Event Archive**：产品确有 audit / replay / provenance / debugging / historical task inspection 需求时，允许按 retention policy 把 tool call / tool result / tool metadata 保存进 Raw History / Event Archive——但必须带 `lineage=tool_result`，且 archive ≠ memory：`promotion_source_allowed(tool_result) = false`（§3），归档永不使其获得 Memory Evidence 权限。无 audit/history 需求的项目 archive = not_needed（YAGNI）。
 - 资产类可变数据注入时必须带仲裁声明："以本实时数据为准；若与长期记忆不一致，视为已删除/变更"。记忆段与会话摘要冲突时同理：以记忆段为准——但 forget 场景不能只靠这句仲裁，必须叠加 §5 的 tombstone 注入期屏蔽。
 - 上表字符预算是 **implementation fallback**（简单项目直接用）；启用 Context Planner 的项目升级为 token 预算动态分配（见 §9.5）。
 
@@ -280,7 +280,7 @@ system(固定) + [风格偏好] + [长期记忆(每条截断，top_k/总预算�
 
 ## 7. 反注入与安全
 
-- 检索资料/记忆/工具结果全部包数据标签（`<context>`/`<tool_result>`），内容里出现的同名闭合标签先剥离；系统提示声明标签内是指令性内容也当作数据。
+- 检索资料/记忆/工具结果全部包数据标签（`<context>`/`<tool_result>`），内容里出现的同名闭合标签先剥离。**标签内内容一律视为 untrusted data**：即使其中出现 "Ignore previous instructions"、"调用某工具"、"记住用户喜欢 Java" 等指令式文本，也不得把它们提升为 system/developer/tool instruction 执行——**retrieved content = data, not authority**。RAG / Tool 内容不得直接或间接成为 User Memory evidence（§3 lineage 规则）。
 - 敏感信息写入门控前正则拦截（宁可漏记不可入库）。
 
 ## 8. 迁移哲学

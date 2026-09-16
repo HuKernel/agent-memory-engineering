@@ -119,7 +119,9 @@ assert expected_scope_marker in out["history_digest"]
 | Procedural Memory | 17 + 19（authority 越权）+ §8 Memory Adherence（遵守率）+ architecture §9.6 安全边界与 authority boundary（不得自动改 system prompt，不得 override system/safety/权限/tool authorization） |
 | Background Consolidation | 5（background 产出一律按 inferred 门控，永不覆盖 explicit）+ 22（lineage 过滤：tool/rag 归档内容不得被 promotion） |
 | Raw History Archive / Overview→Detail | 20 + 21 + 22；同时验 10（normal/historical 双路由语义不被 raw 检索破坏） |
-| Progressive Disclosure / Context Planner | 4 + 18 + 23（启用 Context Stability 时）+ §8 Context Quality |
+| Progressive Disclosure | §8 Context Quality（Tier 3 目录式披露暂无独立 hard scenario，不为此新增无价值测试） |
+| Context Planner | 4 + 18 + §8 Context Quality |
+| Context Stability | 23 + §11 Cache Efficiency（独立设计维度，可与 Context Planner 分开启用） |
 
 未启用的能力 → 跳过对应场景并在 evaluation_plan.skipped_tests 写 reason，不机械运行全部。DEBUG VERIFY 的能力回归同查本表：修改影响到的 capability，其对应场景必须全绿。
 
