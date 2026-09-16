@@ -1,0 +1,19 @@
+{
+  "name": "agent-memory-engineering",
+  "version": "1.1.0",
+  "description": "Design, build, audit, and debug LLM Agent memory & context systems - full lifecycle methodology: scope isolation, writer gating, forget/tombstone, retrieval routing, context stability, representation strategy, and evaluation.",
+  "author": {
+    "name": "HuKernel",
+    "url": "https://github.com/HuKernel"
+  },
+  "homepage": "https://github.com/HuKernel/agent-memory-engineering",
+  "repository": "https://github.com/HuKernel/agent-memory-engineering",
+  "keywords": [
+    "agent",
+    "memory",
+    "context-engineering",
+    "agent-skills",
+    "evaluation"
+  ],
+  "skills": "./skills"
+}

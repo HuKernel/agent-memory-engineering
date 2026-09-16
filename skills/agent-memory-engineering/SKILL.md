@@ -244,6 +244,8 @@ FastAPI + LangGraph + PostgreSQL/pgvector 只是参考实现，不是要求。
 
 ### 5. IMPLEMENT —— 落地
 
+**Host capability 语义**：本节按宿主实际能力执行——host 提供文件读写 / shell / 测试运行能力时直接执行；某项能力不可用时对该项降级为 implementation-ready 计划，不虚构执行结果。能用则用，不能用则明说；这不削弱自主执行原则。
+
 - **有代码**：主动读项目找 request entry、LLM 调用链、message storage、persistence、vector retrieval、context builder、summary、tests → 输出 implementation plan（Schema/Model、Writer、Retrieval、Context Builder、Summary、Routing、Tests、Migration）→ 直接落地实现。仍守 minimal change / reuse / YAGNI。
 
 **自主执行边界**：用户已明确请求"设计并实现 / 帮我把 Memory 做好 / 接入 Memory / 直接改"时，DISCOVER → EVALUATE 连续完成，**不在 DESIGN 后默认停下二次确认**。只有这些情况必须停下来问：destructive migration、数据删除、不可逆 schema change、涉及生产数据的大规模迁移、两种方案都会显著改变产品行为且现有上下文无法裁决、缺失会改变架构的关键业务信息。新增 service/repository/memory writer、调整 context builder、加测试、加普通 schema field——属原始请求范围内的正常实现，无需再确认。
