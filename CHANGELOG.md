@@ -1,6 +1,22 @@
 # Changelog
 
-本文件记录跨平台打包与核心方法论的显著变更。格式参考 Keep a Changelog，版本遵循 SemVer。
+本文件记录仓库打包形态与核心方法论的显著变更。格式参考 Keep a Changelog，版本遵循 SemVer。
+
+## [1.2.0] - 2026-09-16
+
+### Changed
+
+- 简化为标准 Agent Skills 仓库：`npx skills add HuKernel/agent-memory-engineering` 一键安装（no clone / no manual copy / no custom installer）
+- README 重写为一键安装优先（Claude Code / Codex / 双端非交互命令 + usage 示例）
+
+### Removed
+
+- 自定义安装器（`installers/`）、plugin manifests（`.claude-plugin/`、根部 `plugin.json`）、`scripts/validate.py`、`docs/`、`VERSION`——skills CLI 已负责发现/安装/更新，不再重复造轮子
+- `LICENSE-TODO.md` 并入 README License 节提醒（正式 LICENSE 待所有者选定）
+
+### 核心内容
+
+- `skills/agent-memory-engineering/` 布局与内容自 1.1.0 起未变（skills CLI 标准 `skills/` 发现布局）
 
 ## [1.1.0] - 2026-09-16
 
