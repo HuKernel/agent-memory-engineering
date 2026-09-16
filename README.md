@@ -17,7 +17,7 @@
 |---|---|
 | `SKILL.md` | 入口：按需求选路径（BUILD / AUDIT / DEBUG / 测试）、铁律、三大工作流（BUILD：DISCOVER → MODEL → DESIGN → MAP → IMPLEMENT → EVALUATE；AUDIT：只读体检；DEBUG：INSPECT → REPRODUCE → TRACE → DIAGNOSE → PATCH → VERIFY）、核心模式速查 |
 | `references/architecture.md` | Pattern Library：**Core**（七层映射、schema、写入门控、检索/重排、双路由、Forget tombstone、上下文预算）+ **Memory Type Taxonomy**（semantic/episodic/procedural 正交分类）+ **Advanced**（background consolidation、progressive disclosure、context planner、hygiene、entity retrieval、observability）+ **Optional**（graph / bi-temporal / shared memory） |
-| `references/testing.md` | 三层测试分类（Universal Hard Invariant / Capability Hard Tests / Quality Metrics）、19 个能力场景、能力 → 场景映射、Root Cause 判定（CASE A–F）、验收指标、Quality Metrics（write / retrieval / context / hygiene / end-task delta / cost） |
+| `references/testing.md` | 三层测试分类（Universal Hard Invariant / Capability Hard Tests / Quality Metrics）、21 个能力场景、能力 → 场景映射、Root Cause 判定（CASE A–F）、验收指标、Quality Metrics（write / retrieval / context / hygiene / end-task delta / cost） |
 
 ## 安装
 
