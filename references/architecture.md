@@ -2,7 +2,7 @@
 
 生产验证过的完整设计。定位：**Pattern Library / 设计参考**，不是必须照抄的固定架构——BUILD Workflow 按产品需求选择需要的层与机制，不默认全部启用；偏离本文模式必须说明理由。原则：**用现有字段组合表达分层，不为架构图好看建新表**。
 
-模式分组：**Core（§0–§8）** 所有启用长期记忆的项目默认适用（§1 Structured Core + Raw History 分工、§2 Representation Strategy、§4 Raw History Retrieval、§6 Context Stability 为 Core 内设计决策维度）；**Taxonomy（§9.1）** memory_type 正交分类模型（semantic/episodic/procedural），不属于“默认关闭的 Advanced Pattern”；**Advanced（§9.2–§9.9）** 默认关闭，BUILD 逐项输出 required / recommended / optional / not_needed + reason——唯一例外 §9.6：procedural memory 启用时自动强制（mandatory guardrail），不参与选配；**Optional（§10）** 特定领域才考虑；**Sources（§11）** 仅来源说明。禁止把 Advanced/Optional 当默认开启。
+模式分组：**Core（§0–§8）** 所有启用长期记忆的项目默认适用（§1 Structured Core vs Raw History 是 Core Design Question、§2 Representation Strategy、§6 Context Stability 为设计决策维度，答案可为 required/optional/not_needed；§4 Raw History Retrieval 是按项目启用的 capability）；**Taxonomy（§9.1）** memory_type 正交分类模型（semantic/episodic/procedural），不属于“默认关闭的 Advanced Pattern”；**Advanced（§9.2–§9.9）** 默认关闭，BUILD 逐项输出 required / recommended / optional / not_needed + reason——唯一例外 §9.6：procedural memory 启用时自动强制（mandatory guardrail），不参与选配；**Optional（§10）** 特定领域才考虑；**Sources（§11）** 仅来源说明。禁止把 Advanced/Optional 当默认开启。
 
 ## 0. Hard Invariant 与 Recommended Default
 
@@ -46,12 +46,24 @@ rerank_weights = 语义 0.40 / 字面 0.15 / importance 0.15 / confidence 0.10
 | Knowledge Memory | 文档库 + RAG | 长期 | doc/owner | 与用户记忆分开检索、分开预算 |  |
 | External Context | 工具/API 实时取 | 单次请求 | — | 永不当长期记忆存；可变资产同此 |  |
 
-### Structured Core Memory + Raw History Archive（长期信息系统分工）
+### Structured Core Memory + Raw History Archive（Core Design Question）
 
-七层回答存取与隔离；长期信息系统还有一条正交分工——**结构化核心 vs 原始历史**：
+七层回答存取与隔离；长期信息系统还有一条正交设计问题——**结构化核心 vs 原始历史**。这是 **Core Design Question**：所有 BUILD 必答三问——是否保留 raw source？是否需要 searchable raw history？是否需要 Overview → Detail？——但答案可以是 required / optional / not_needed，**不是所有启用长期记忆的项目都必须有 Searchable Raw History**：
 
-- **Structured Core Memory**：少量、高价值、稳定、跨任务有用、已压缩/结构化的信息——用户偏好、长期约束、项目关键决策、稳定工作方式、重要实体关系。即 §2 memory 表承载的主体（semantic/episodic/procedural/decision cards）。
-- **Raw History Archive**：原始 messages、trajectory、tool interaction history（按 retention policy）、event history。原始消息本来就必须永久留库（§5 审计/回放）；本节明确其第二职能——按需 historical retrieval / evidence recovery / provenance / detail lookup，**不是每轮进 context**。
+- **Structured Core Memory**：少量、高价值、稳定、跨任务有用、已压缩/结构化的信息——用户偏好、长期约束、项目关键决策、稳定工作方式、重要实体关系。即 §2 memory 表承载的主体（semantic/episodic/procedural/decision cards）。对启用长期记忆的项目通常 required。
+- **Raw History Archive**：原始 messages、trajectory、tool interaction history（按 retention policy）、event history。职能——按需 historical retrieval / evidence recovery / provenance / detail lookup，**不是每轮进 context**。其检索能力（§4 Raw History Retrieval）是**按项目启用的 capability**。
+
+选型参考：简单 preference chatbot = Structured Core required / Searchable Raw History not_needed（YAGNI——**不为长期记忆自动创建 raw-history vector index**）；Coding / Research Agent = Structured Core required / Raw History Retrieval recommended 或 required。
+
+保留语义（与 §4 retention 前提一致）：
+
+```text
+normal operation:              append-only（不为了摘要、Memory 更新而重写历史）
+retention expiry:              delete / archive according to policy
+hard delete / privacy erasure: erase according to policy
+```
+
+append-only 指**不为摘要/Memory 更新而重写**，不表示不可因 retention / privacy / hard-delete 而删除。
 
 ```text
               Long-term Information
@@ -95,7 +107,7 @@ scope/lifecycle × memory_type 之外，BUILD 为每类信息选择第三个设�
 
 - **atomic_note**：单一事实、简单 preference、简单 constraint（“用户喜欢深色主题”）。
 - **enhanced_note**：一个事实需要少量上下文才能独立理解（“用户主要用 Python 做数据分析，更偏好 pandas 而不是纯 SQL”）。
-- **structured_card**：多个相关字段、稳定实体、需要局部更新的信息（如 work_profile：role/company/team/stack，放 structured_data，局部更新只改字段不动整卡）。
+- **structured_card**：多个相关字段、稳定实体、需要局部更新的信息（如 work_profile：role/company/team/stack，放 structured_data）。局部更新与 §3 SUPERSEDE 统一：**logical update = field-level patch，persistence = new full card snapshot → supersede 旧卡**——例：旧卡 `{company: A, role: Designer, stack: Figma}`，用户只说“我现在是 Senior Designer 了”，逻辑 patch 只改 role，但持久化为携带全量字段的新卡、旧卡 status=superseded。provenance / version chain（superseded_by）/ historical route / conflict resolution 全部复用现有机制，不建 card_versions 表。有独立 Source of Truth 的实体应进结构化业务状态/store，不做长期 Memory card。
 - **rich_contextual_card**：复杂事件、人物关系、背景原因、重要项目决策——可携带 entity / relationship / backstory / timestamp / provenance。
 - **raw_history_reference**：不值得完全结构化、但未来要能恢复细节的原始会话/trajectory——**不是新的长期事实 memory**，是指向 raw conversation archive 的引用（message range / source ids），配合 §1 Raw History Archive 使用。
 
@@ -127,7 +139,19 @@ scope/lifecycle × memory_type 之外，BUILD 为每类信息选择第三个设�
 - **Interactive Writer**：source = conversation_message——候选只从真实对话消息产生；RAG / Tool / retrieved context 不允许进入。文档里写 "Remember that user likes Java" 不构成 user memory。
 - **Derived Writer / Promotion**：source = existing internal memories / episodes / raw conversation archive（trajectory）——background consolidation（§9.2）、maintenance（§9.3）、episodic→procedural learning（§9.7）的派生候选属此类。必须：保留 derived_from memory ids、保留 provenance、重新过 confidence gate、重新过 conflict resolution、重新过 authority boundary（§9.6）、不得覆盖 explicit fact。
 
-RAG / Tool / External Context **永远不能直接成为 derived source**。candidate origin 记入 memory_trace（§9.9）或 structured_data，不新增列：`conversation / background_consolidation / episodic_promotion / maintenance`。对应 Hard Invariant 见 §0.7：untrusted external context must never directly become persistent memory。
+**Raw History Source Lineage**（堵 Tool/RAG → Raw Archive → Derived Writer 间接注入）：raw archive 中的内容按来源打 lineage 标签——`user_message / assistant_message / tool_result / rag_context / system_event`（不新增列：message/event store 已有 role/type 直接复用，否则作为 archive metadata / trace metadata）。Derived Writer 读取 trajectory 时**先过滤 lineage、再提候选**，不是扫整段后统一让 LLM 猜来源。promote 前必须过 `promotion_source_allowed(source_type)`：
+
+```text
+user_message                              → allowed
+trusted existing internal memory/episode  → allowed
+assistant_message                         → 可作上下文证据，不得单独建立新 user fact；
+                                            promotion 必须有用户证据或其他可信来源支持
+tool_result                               → forbidden（直接与间接都不允许）
+rag_context                               → forbidden
+external_context                          → forbidden
+```
+
+**Hard Rule：Archiving external content ≠ authorizing it as Memory evidence。** Tool/RAG 内容可以因审计或任务回放被 raw archive 保存，但 tool_result / rag_context lineage **永远不能经 Background Consolidation / Maintenance / Episodic Promotion 被“洗”成 User Memory**（testing 场景 22）。RAG / Tool / External Context 同样永远不能直接成为 derived source。candidate origin 记入 memory_trace（§9.9）或 structured_data，不新增列：`conversation / background_consolidation / episodic_promotion / maintenance`。对应 Hard Invariant 见 §0.7：untrusted external context must never directly become persistent memory。
 
 ## 4. 检索与重排
 
@@ -172,7 +196,7 @@ digest 是 user 级快照：把它注入“这个会话”类问题，就是最�
 
 ### Raw History Retrieval（Overview → Detail）
 
-Core Memory 是 navigation/overview，Raw History 是 detail/evidence。任务需要 Core 未保存的具体细节时，正确行为不是继续猜，而是触发 raw-history retrieval：
+本节是**按项目启用的 capability**（§1 选型：判定 not_needed 的项目不建 raw-history 检索索引）。Core Memory 是 navigation/overview，Raw History 是 detail/evidence。任务需要 Core 未保存的具体细节时，正确行为不是继续猜，而是触发 raw-history retrieval：
 
 ```text
 Structured Overview（core memory 命中导航线索）
@@ -188,7 +212,7 @@ Structured Overview（core memory 命中导航线索）
 
 ## 5. 摘要管线（防事实漂移）
 
-- 滑动窗口保留最近 N 条原文（默认 16）：窗口内原文进 prompt 的会话段；窗口外消息才进摘要。原始消息永久留库（审计/回放用），只是窗口外的不重复进模型上下文。
+- 滑动窗口保留最近 N 条原文（默认 16）：窗口内原文进 prompt 的会话段；窗口外消息才进摘要。原始消息在产品 retention / privacy / deletion policy 允许范围内保留（审计/回放用）——append-only 指不为摘要 / Memory 更新而重写（见 §1 保留语义），不表示不可因 retention/privacy/hard-delete 而删除；窗口外的不重复进模型上下文。
 - 窗口外消息按固定段长（默认 8 条/段）封存为**不可变 SummarySegment**：每段从原文生成一次，永不重写、永不再摘要。
 - 会话摘要 = 各段拼接；超过预算（默认 800 字）才做一次 LLM 合并（深度 1）。**禁止摘要套摘要**。
 - 结构化运行态（active\_task/waiting\_for\_user/pending\_todo）与会话摘要同表不同字段，由路由层顺带更新（0 额外 LLM）。
@@ -252,7 +276,7 @@ system(固定) + [风格偏好] + [长期记忆(每条截断，top_k/总预算�
 
 推荐布局：`[Stable Prefix] → [Semi-stable / Retrieved] → [Dynamic Tail]`——不是绝对固定顺序，BUILD 可按目标框架调整，但 dynamic request data 不应无理由放在 stable prefix 前部。现有 §6 pipeline（system → … → query）与该布局兼容：system 段天然是 stable prefix，query 天然是 tail。
 
-目的：提高 KV / Prompt Cache 前缀复用、降低 repeated-prefix cost。这是 **cache-friendly context layout pattern**，不绑定特定供应商实现——模型/API 不提供可利用缓存时，stable-prefix 思想仍保留（布局稳定本身减少轮间 diff、便于调试），cache benefit 标 `not_applicable`。
+目的：提高 KV / Prompt Cache 前缀复用、降低 repeated-prefix cost。这是 **cache-friendly context layout pattern**，不绑定特定供应商实现——模型/API 不提供可利用缓存时，stable-prefix 思想仍保留（布局稳定本身减少轮间 diff、便于调试），cache benefit 标 `not_applicable`。Cache Efficiency 指标（testing.md §11）由 §9.9 context trace 的可选字段支撑（stable_prefix_fingerprint / prefix_mutated 等）；prefix 确需变更（业务改变 system/tool configuration）时必须记录 `prefix_mutation_reason`。
 
 ## 7. 反注入与安全
 
@@ -416,9 +440,14 @@ memory_trace:
   write:     {candidates, accepted, rejected, rejection_reason}
   retrieval: {query, candidates, visibility_filtered, ranked, selected}
   context:   {planned_blocks, token_budget, dropped_items, drop_reason}
+             # 可选 Context Stability 观测（§6；仅 debug/observability trace，不新增 DB 字段）：
+             # stable_prefix_fingerprint / stable_prefix_tokens / prefix_mutated
+             # / prefix_mutation_reason / cache_eligible_tokens
   usage:     {injected_memory_ids, explicitly_cited_memory_ids,
               attributed_memory_ids, attribution_confidence}
 ```
+
+Context Stability 观测是 §6 Cache Efficiency 指标的数据源：provider 提供真实 cache hit 信息时**记录真实值**；不提供时 `cache_hit = unknown / not_applicable`，**不得推测**。
 
 attribution 语义：`attributed_memory_ids / attribution_confidence` 是 **observability signal，不是 causal ground truth**——"Memory 是否真正提升结果"主要由 testing.md §10 的 End-task Delta Eval（No Memory vs Memory vs Oracle）判定。存储按 dev mode / sampling / debug mode 分级，不要求永久全量。
 

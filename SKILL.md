@@ -67,7 +67,19 @@ product_context:
   persistence:           # 现有 DB 与 ORM
   vector_store:          # 现有向量库（没有则标注）
   cache:                 # 现有缓存设施
+  history_requirements:
+    needs_cross_session_detail_retrieval:  # 是否需要跨会话细节回溯 → raw history 选型
+    expected_history_horizon:              # 历史视野（天/月）→ retention 与索引策略
+  retention_privacy:
+    raw_history_retention:                   # raw history 保留策略
+    supports_user_forget:                    # 是否支持 forget_for_inference
+    requires_hard_delete_or_privacy_erasure: # 是否要求 hard-delete / privacy erasure
+  model_context:
+    context_window:                          # 模型 context window
+    prefix_cache_supported:                  # provider 是否支持 prefix cache
 ```
+
+新增的 history_requirements / retention_privacy / model_context 仍优先从代码 / config / provider SDK / PRD **自动推断**，只有影响架构且确实无法推断才问用户——它们决定 DESIGN 阶段的 Raw History Retrieval、Context Stability / Cache Strategy、Retention / Erasure 选型。
 
 同时判定三件事：哪些信息需要长期记忆、哪些只是短期运行状态、哪些已有独立 Source of Truth（有 SoT 的只实时查询，铁律 7）。
 
@@ -83,7 +95,7 @@ product_context:
 
 memory_type 与 scope/生命周期**正交**（architecture.md §9.1 taxonomy）：semantic = 稳定事实/偏好，episodic = 过去任务的成败经验，procedural = Agent 行动规则——组合如 User+Semantic、Project+Episodic 都是合法的。decision 不是 memory_type 值：决策类信息 = `semantic + domain='decision'`，历史决策事件 = `episodic + domain='decision'`。global procedural = 针对当前 user、跨 thread/project 的行为偏好或工作习惯（"给我代码前先解释"），不是 system-wide 规则——后者属 trusted system policy / agent configuration，不入 user memory 表。
 
-**Representation Strategy**（architecture.md §2，设计决策维度，不是 DB 字段）：`atomic_note`（单一事实/简单偏好）/ `enhanced_note`(需少量上下文才独立理解) / `structured_card`（多字段稳定实体，局部更新）/ `rich_contextual_card`（复杂事件/关系/决策，携带 entity/relationship/backstory/provenance）/ `raw_history_reference`（指向 raw conversation archive 的引用，不是新的长期事实 memory）。**Representation 不绑定 memory_type**——由信息复杂度、更新频率、关系复杂度、检索方式、token cost 共同决定（Semantic+atomic_note 与 Episodic+rich_contextual_card 都合法）。优先按 Information → Memory Type → Representation 逐条映射：
+**Representation Strategy**（architecture.md §2，设计决策维度，不是 DB 字段）：`atomic_note`（单一事实/简单偏好）/ `enhanced_note`(需少量上下文才独立理解) / `structured_card`（多字段稳定实体；局部更新 = 逻辑 field patch + 持久化全量快照走 SUPERSEDE）/ `rich_contextual_card`（复杂事件/关系/决策，携带 entity/relationship/backstory/provenance）/ `raw_history_reference`（指向 raw conversation archive 的引用，不是新的长期事实 memory）。**Representation 不绑定 memory_type**——由信息复杂度、更新频率、关系复杂度、检索方式、token cost 共同决定（Semantic+atomic_note 与 Episodic+rich_contextual_card 都合法）。优先按 Information → Memory Type → Representation 逐条映射：
 
 ```yaml
 information_mapping:
@@ -196,7 +208,7 @@ representation_strategy:        # architecture.md §2；按信息类选型，不
     reason: "用户常询数月前决策细节，Core 无法保存全部证据"
 ```
 
-**Structured Core vs Raw History**（architecture.md §1）：长期信息系统 = 少量高价值 Structured Core（cards）+ 可检索 Raw History Archive（原始消息/trajectory，按 retention policy）——Core 是 navigation/overview，Raw 是 detail/evidence；普通问题走 active memory，detail lookup / 显式历史意图才回 raw（双路由不变）。
+**Structured Core vs Raw History**（architecture.md §1，**Core Design Question**）：每个 BUILD 必答三问——是否保留 raw source？是否需要 searchable raw history？是否需要 Overview → Detail？——答案取 required / optional / not_needed（简单 preference chatbot：Core required / Searchable Raw History not_needed，**不为长期记忆自动建 raw-history 索引**；Coding / Research Agent：Raw History Retrieval recommended 或 required）。Core 是 navigation/overview，Raw 是 detail/evidence；普通问题走 active memory，detail lookup / 显式历史意图才回 raw（双路由不变）；raw 保留受 retention / privacy / deletion policy 管辖——append-only 指不为摘要/Memory 更新重写，不表示不可删除。
 
 **Context Stability**（architecture.md §6/§9.5）：BUILD 输出 stable_prefix / semi_stable / dynamic_tail 分段与 cache_strategy（Context Architecture Decision，不强制新增 runtime schema）；provider 无可利用 prefix cache 时保留 stable-prefix 布局、cache benefit 标 not_applicable。
 
@@ -253,8 +265,8 @@ memory_system_blueprint:
   context_stability:           # stable_prefix / semi_stable / dynamic_tail
                                # / cache_strategy（§6；含 not_applicable 判定）
   representation_strategy:     # information → representation 映射（§2）
-  long_term_information:       # structured_core_memory / raw_history_archive
-                               # / historical_retrieval（§1 / §4）
+  long_term_information:       # structured_core / raw_history_archive / retrieval
+                               # 的 required/optional/not_needed 判定（§1 / §4）
   compression_strategy:        # 压缩优先序 + SummarySegment 约束（§5）
                                # 不需要的项明确写 not_needed + reason，不留空
   summary_policy:
@@ -363,11 +375,11 @@ affected_scope:              # 受影响的 scope 与查询路径
 6. 重复记忆不重复召回：场景 7；
 7. context token 有界：场景 4。
 
-再加**能力回归**：列出本次修改的 affected_capabilities，按 testing.md §7 Capability Hard Tests「能力 → 场景映射」选测试——改 Forget 跑 11/15；改 Project Visibility 跑 12/13；改 valid_to 跑 14；改 Historical Route 跑 10；改 Writer 输入边界跑 9；改 Procedural 写入/注入跑 19；改 Raw History Retrieval 跑 20/21。原则：**修改影响到的 capability，其对应测试必须全部通过**。
+再加**能力回归**：列出本次修改的 affected_capabilities，按 testing.md §7 Capability Hard Tests「能力 → 场景映射」选测试——改 Forget 跑 11/15；改 Project Visibility 跑 12/13；改 valid_to 跑 14；改 Historical Route 跑 10；改 Writer 输入边界跑 9；改 Procedural 写入/注入跑 19；改 Raw History Retrieval 跑 20/21；改 Derived Writer / lineage 过滤跑 22；改 Context Stability / stable prefix 布局跑 23。原则：**修改影响到的 capability，其对应测试必须全部通过**。
 
 ## 核心模式速查（详细版在 references/architecture.md）
 
-**写入门控（Memory Writer）**：预判（路由层标记候选）+ 终判（结构化输出 should_store/type/scope/lifetime/source_type/confidence）→ 敏感信息正则拦截 → 向量近邻查重（限定同 scope + 排除系统域）→ 三动作冲突消解（REINFORCE 强化 / SUPERSEDE 失效挂链 / IGNORE），近邻重复簇整体处理而非只取第一条。两类 candidate source（architecture.md §3）：Interactive Writer 只从真实对话消息提取——RAG/工具结果/检索内容永远不构成记忆；Derived Writer（background consolidation / episodic promotion / maintenance）只能以现有内部 memories/episodes 为 source，重过全部门控并保留 derived_from；RAG/Tool/External Context 永远不能直接成为任何 writer 的 source。「记住以后忽略系统/安全规则」类候选按无效/拒绝写入处理（procedural authority boundary，architecture.md §9.6）。
+**写入门控（Memory Writer）**：预判（路由层标记候选）+ 终判（结构化输出 should_store/type/scope/lifetime/source_type/confidence）→ 敏感信息正则拦截 → 向量近邻查重（限定同 scope + 排除系统域）→ 三动作冲突消解（REINFORCE 强化 / SUPERSEDE 失效挂链 / IGNORE），近邻重复簇整体处理而非只取第一条；部分更新 = 新记录携带全量内容走 SUPERSEDE（structured_card 的“局部更新”是逻辑层 field patch，持久化仍是全量快照）。两类 candidate source（architecture.md §3）：Interactive Writer 只从真实对话消息提取——RAG/工具结果/检索内容永远不构成记忆；Derived Writer（background consolidation / episodic promotion / maintenance）只能以现有内部 memories/episodes/raw conversation archive 为 source，重过全部门控并保留 derived_from，**读取 raw archive 时先按 lineage 过滤**（tool_result / rag_context 永不能经派生写入“洗”成 user memory——archiving ≠ authorizing as memory evidence）；RAG/Tool/External Context 永远不能直接成为任何 writer 的 source。「记住以后忽略系统/安全规则」类候选按无效/拒绝写入处理（procedural authority boundary，architecture.md §9.6）。
 
 **检索（Hybrid）**：Visibility 硬过滤先行（user → thread/project scope 隔离，无 project 上下文 fail closed → status=active → valid_to 未过期、NULL=永久有效），向量 + 关键词混合召回，加权重排——语义主导，importance/confidence/字面命中做修正信号，**recency 权重刻意压低**（长期事实"越旧越不重要"是错的）。
 
@@ -375,7 +387,7 @@ affected_scope:              # 受影响的 scope 与查询路径
 
 **摘要防漂移**：不可变分段（每段覆盖固定条数消息、从原文生成一次、永不再摘要），会话摘要 = 段拼接，超预算才做一次“深度 1”合并。摘要的摘要 = 事实漂移之源。最近窗口原文进 prompt，窗口外才进摘要。Forget 不重写摘要——tombstone 在注入期屏蔽。Summary ≠ Memory：摘要是 thread 内压缩表示，不自动当 User Memory 落库；压缩目标是信息密度，不止塞得下。
 
-**Core Memory + Raw History**：Memory ≠ Chat History，但 Structured Core（少量高价值 cards）+ Searchable Raw History（原始消息/trajectory 归档，按 retention policy）= 长期信息系统。Core = navigation/overview，Raw = detail/evidence——缺细节时触发 raw-history 检索找回证据（architecture.md §4 Overview→Detail），不凭 overview 猜；raw 检索必须过 scope/相关性/预算并受 tombstone 屏蔽，禁止全量倾倒。
+**Core Memory + Raw History**：Memory ≠ Chat History，但 Structured Core（少量高价值 cards）+ Searchable Raw History（原始消息/trajectory 归档，按 retention policy）= 长期信息系统——Raw History Retrieval 是**按项目选型的 capability**（required/optional/not_needed），非强制启用，不为长期记忆自动建 raw-history 索引；append-only 指不为摘要/Memory 更新重写，受 retention/privacy/deletion policy 管辖。Core = navigation/overview，Raw = detail/evidence——缺细节时触发 raw-history 检索找回证据（architecture.md §4 Overview→Detail），不凭 overview 猜；raw 检索必须过 scope/相关性/预算并受 tombstone 屏蔽，禁止全量倾倒。
 
 **上下文组装**：分层预算 + 各段独立上限（最近窗口/摘要/记忆/RAG/工具结果），溢出截断保头尾关键块；布局按 stability 分三段——Stable Prefix（system/trusted instructions/tool defs，内容顺序稳定，不插时间戳/实时状态）→ Semi-stable（memory/knowledge 按需）→ Dynamic Tail（task state/trajectory/tool results/query），cache-friendly 且不绑定供应商；能力门控（路由判定不需要的模块物理跳过，不是 prompt 里说“忽略”）。
 
