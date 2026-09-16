@@ -83,7 +83,3 @@ assert expected_scope_marker in out["history_digest"]
 - 当前会话真实信息 recall（B 的提问全在 digest 中）= 100%
 - Context token 上限随对话轮数的增长曲线 = 有界（摘要封顶）
 - 合法跨会话路径通过率 = 100%（不许为隔离误伤正当功能）
-
-## 7. 前端侧账号切换测试（配套）
-
-换账号登录后显示上一账号停留页面：退出时必须同时清内存 store（messages/threads/currentThreadId）**和** localStorage 停留点 key；恢复 404 分支要清 messages（自愈）。单测直接断言 store reset 后三字段为空 + localStorage key 消失。
