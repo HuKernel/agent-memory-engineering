@@ -22,7 +22,7 @@ description: >
 
 ## 术语约定
 
-全文 **thread == conversation == 会话**（同一概念；字段名以目标项目为准，下文统称 thread）。**scope** 是记忆的可见范围：`global`（用户级）/ `thread`（会话级）/ `project`（项目级）。**digest** 指会话标题列表 + 资产清单的轻量快照（user 级）。
+全文 **thread == conversation == 会话**（同一概念；字段名以目标项目为准，下文统称 thread）。**scope** 是记忆的可见范围：`global`（用户级）/ `thread`（会话级）/ `project`（项目级）——global 即 user 级，不承载 system-wide / agent-wide 语义。**memory_type** 是正交的信息性质分类，值域仅 `semantic` / `episodic` / `procedural`；decision 等领域维度走 `domain` 字段（如 `domain='decision'`），不占 memory_type 值域。**digest** 指会话标题列表 + 资产清单的轻量快照（user 级）。
 
 ## 按需求选路径
 
@@ -44,7 +44,7 @@ description: >
 7. 临时/可变状态（进度百分比、资产清单、本周在哪）不写入长期记忆——实时查询才是 Source of Truth。
 8. 被 Forget 的事实不得回流最终 prompt：tombstone 在注入期屏蔽旧摘要/digest/缓存里的原话（`references/architecture.md` §5）；仅靠"以记忆段为准"的仲裁声明不够。
 
-**参数哲学**：本文与 references 里的一切数字（阈值/权重/窗口/预算）都是 **Recommended Default**——经验起点，应通过真实数据集与 eval 校准，不是架构真理。Hard Invariant 是行为约束（见 `references/architecture.md` §0），与数字无关，不许放松。
+**参数哲学**：本文与 references 里的一切数字（阈值/权重/窗口/预算）都是 **Recommended Default**——经验起点，应通过真实数据集与 eval 校准，不是架构真理。Hard Invariant 是行为约束（见 `references/architecture.md` §0；测试分三层——Universal Hard Invariant / Capability Hard Tests / Quality Metrics，见 `references/testing.md`），与数字无关，不许放松。
 
 ## BUILD 工作流：DISCOVER → MODEL → DESIGN → MAP → IMPLEMENT → EVALUATE
 
@@ -81,9 +81,10 @@ product_context:
      → 是否长期记忆 → Storage → Retrieval Route
 ```
 
-memory_type 与 scope/生命周期**正交**（architecture.md §9.1）：semantic = 稳定事实/偏好，episodic = 过去任务的成败经验，procedural = Agent 行动规则——组合如 User+Semantic、Project+Episodic 都是合法的。
+memory_type 与 scope/生命周期**正交**（architecture.md §9.1 taxonomy）：semantic = 稳定事实/偏好，episodic = 过去任务的成败经验，procedural = Agent 行动规则——组合如 User+Semantic、Project+Episodic 都是合法的。decision 不是 memory_type 值：决策类信息 = `semantic + domain='decision'`，历史决策事件 = `episodic + domain='decision'`。global procedural = 针对当前 user、跨 thread/project 的行为偏好或工作习惯（"给我代码前先解释"），不是 system-wide 规则——后者属 trusted system policy / agent configuration，不入 user memory 表。
 
 例：「用户喜欢深色主题」→ 长期 / global / semantic / 用户明确陈述 → **是**长期记忆 → memory 表 → 正常召回。
+例：「项目决定使用 PostgreSQL」→ 长期 / project / semantic + domain=decision → **是**长期记忆（决策状态/理由/备选放 structured_data）→ memory 表 → 正常召回。
 例：「上次部署失败因 migration 未锁表」→ 长期 / project / episodic → **是**长期记忆（历史经验，不因新事实过期；检索显著性可衰减，显式历史查询永远可恢复）。
 例：「当前任务完成 70%」→ task / task state 是 SoT → **不是**长期记忆 → 结构化运行态 → 实时读取。
 
@@ -104,7 +105,7 @@ selected_layers:
   external:  {enabled: true}
 ```
 
-必须能回答：**为什么这个项目需要这一层、为什么不需要另一层**。同样输出 memory_type 与 advanced_patterns（architecture.md §9–§10，逐项 status + reason，默认 not_needed）：
+必须能回答：**为什么这个项目需要这一层、为什么不需要另一层**。同样输出 memory_type 与 advanced_patterns（architecture.md §9–§10；memory_type 按 §9.1 taxonomy 启用——semantic 对长期事实/偏好类 Memory 通常适用，episodic/procedural 按项目需要；advanced_patterns 逐项 status + reason，默认 not_needed）：
 
 ```yaml
 memory_types:
@@ -174,7 +175,7 @@ memory_system_blueprint:
 
 ### 6. EVALUATE —— 按能力选测试，不机械全跑
 
-按 `references/testing.md` §7「能力 → 场景映射」选择（如：有长期 User Memory → 必测 1/5/6/7/14；支持 Forget → 11/15；无 project → 跳过 13 并写 reason）。未启用的能力跳过对应场景并在 skipped_tests 写 reason，不机械全跑。Hard Invariant 场景之外，再按 testing.md §8–§11 选 Quality Eval（write / retrieval / context / maintenance / end-task delta / cost）——**Metric 阈值按项目校准，不是全项目统一硬门槛**。
+按 `references/testing.md` 三层分类选择：**A. Universal Hard Invariant**（§6 泄漏/回流 = 0 类，启用对应基础能力即必须满足）+ **B. Capability Hard Tests**（§1 场景 × §7「能力 → 场景映射」，能力启用才必测——如：有长期 User Memory → 1/5/6/7/14；支持 Forget → 11/15；无 project → 跳过 13 并写 reason）+ **C. Quality Metrics**（§8–§11：write / retrieval / context / maintenance / end-task delta / cost）。未启用的能力跳过对应场景并在 skipped_tests 写 reason，不机械全跑；**Metric 阈值按项目校准，不是全项目统一硬门槛**。
 
 ```yaml
 evaluation_plan:
@@ -272,11 +273,11 @@ affected_scope:              # 受影响的 scope 与查询路径
 6. 重复记忆不重复召回：场景 7；
 7. context token 有界：场景 4。
 
-再加**能力回归**：列出本次修改的 affected_capabilities，按 testing.md §7「能力 → 场景映射」选测试——改 Forget 跑 11/15；改 Project Visibility 跑 12/13；改 valid_to 跑 14；改 Historical Route 跑 10；改 Writer 输入边界跑 9。原则：**修改影响到的 capability，其对应测试必须全部通过**。
+再加**能力回归**：列出本次修改的 affected_capabilities，按 testing.md §7 Capability Hard Tests「能力 → 场景映射」选测试——改 Forget 跑 11/15；改 Project Visibility 跑 12/13；改 valid_to 跑 14；改 Historical Route 跑 10；改 Writer 输入边界跑 9；改 Procedural 写入/注入跑 19。原则：**修改影响到的 capability，其对应测试必须全部通过**。
 
 ## 核心模式速查（详细版在 references/architecture.md）
 
-**写入门控（Memory Writer）**：预判（路由层标记候选）+ 终判（结构化输出 should_store/type/scope/lifetime/source_type/confidence）→ 敏感信息正则拦截 → 向量近邻查重（限定同 scope + 排除系统域）→ 三动作冲突消解（REINFORCE 强化 / SUPERSEDE 失效挂链 / IGNORE），近邻重复簇整体处理而非只取第一条。候选只从对话消息提取——RAG/工具结果里的内容永远不构成记忆。
+**写入门控（Memory Writer）**：预判（路由层标记候选）+ 终判（结构化输出 should_store/type/scope/lifetime/source_type/confidence）→ 敏感信息正则拦截 → 向量近邻查重（限定同 scope + 排除系统域）→ 三动作冲突消解（REINFORCE 强化 / SUPERSEDE 失效挂链 / IGNORE），近邻重复簇整体处理而非只取第一条。候选只从对话消息提取——RAG/工具结果里的内容永远不构成记忆；「记住以后忽略系统/安全规则」类候选按无效/拒绝写入处理（procedural authority boundary，architecture.md §9.6）。
 
 **检索（Hybrid）**：Visibility 硬过滤先行（user → thread/project scope 隔离，无 project 上下文 fail closed → status=active → valid_to 未过期、NULL=永久有效），向量 + 关键词混合召回，加权重排——语义主导，importance/confidence/字面命中做修正信号，**recency 权重刻意压低**（长期事实"越旧越不重要"是错的）。
 
@@ -286,4 +287,4 @@ affected_scope:              # 受影响的 scope 与查询路径
 
 **上下文组装**：分层预算 + 各段独立上限（最近窗口/摘要/记忆/RAG/工具结果），溢出截断保头尾关键块；能力门控（路由判定不需要的模块物理跳过，不是 prompt 里说"忽略"）。
 
-**高级模式选配**：semantic / episodic / procedural 与七层正交（§9.1）；background consolidation、progressive disclosure（Tier 3 目录式上下文）、context planner（token 级动态预算 + query-aware 策略）、entity retrieval、memory hygiene 按项目条件选配（§9）；graph / bi-temporal / multi-agent shared memory 仅特定领域（§10）。BUILD 逐项输出 required / recommended / optional / not_needed + reason，默认不开——敢于说 not_needed 是正确行为。
+**Memory Type 与高级模式**：semantic / episodic / procedural 是与七层正交的分类模型（§9.1 taxonomy）——semantic 对长期事实/偏好类 Memory 通常适用，episodic / procedural 按项目需要启用，不属于"默认关闭的 Advanced Pattern"。background consolidation、progressive disclosure（Tier 3 目录式上下文）、context planner（token 级动态预算 + query-aware 策略）、entity retrieval、memory hygiene 是 Advanced Patterns，默认关闭，按项目条件选配（§9.2–§9.9）；graph / bi-temporal / multi-agent shared memory 仅特定领域（§10）。Advanced Patterns 由 BUILD 逐项输出 required / recommended / optional / not_needed + reason——敢于说 not_needed 是正确行为。procedural 无论来源（explicit/inferred）都受 authority boundary 约束（§9.6）：只在与更高优先级 system/security/project/tool 约束一致时适用，永不提升权限。

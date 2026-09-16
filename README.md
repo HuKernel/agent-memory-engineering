@@ -9,15 +9,15 @@
 - 记忆系统的 bug 几乎都是 **scope/隔离问题**，不是向量相似度问题。
 - 上下文的 bug 几乎都是"**错误内容在哪一步第一次进入流水线**"的问题。
 - 用现有字段组合表达分层，不为架构图好看建新表。
-- 高级模式（semantic/episodic/procedural、background consolidation、progressive disclosure、context planner、graph / bi-temporal…）默认不启用，BUILD 逐项输出 required / recommended / optional / not_needed + reason——敢于说 not_needed 是正确行为。
+- memory_type（semantic/episodic/procedural）是与七层正交的分类模型：semantic 对长期事实/偏好类 Memory 通常适用，episodic / procedural 按项目需要启用。Advanced Patterns（background consolidation、progressive disclosure、context planner、graph / bi-temporal…）默认关闭，BUILD 逐项输出 required / recommended / optional / not_needed + reason——敢于说 not_needed 是正确行为。
 
 ## 仓库结构
 
 | 文件 | 内容 |
 |---|---|
 | `SKILL.md` | 入口：按需求选路径（BUILD / AUDIT / DEBUG / 测试）、铁律、三大工作流（BUILD：DISCOVER → MODEL → DESIGN → MAP → IMPLEMENT → EVALUATE；AUDIT：只读体检；DEBUG：INSPECT → REPRODUCE → TRACE → DIAGNOSE → PATCH → VERIFY）、核心模式速查 |
-| `references/architecture.md` | Pattern Library：**Core**（七层映射、schema、写入门控、检索/重排、双路由、Forget tombstone、上下文预算）+ **Advanced**（memory type 维度、background consolidation、progressive disclosure、context planner、hygiene、entity retrieval、observability）+ **Optional**（graph / bi-temporal / shared memory） |
-| `references/testing.md` | 15 个 Hard Invariant 场景、能力 → 场景映射、Root Cause 判定（CASE A–F）、验收指标、Quality Metrics（write / retrieval / context / hygiene / end-task delta / cost） |
+| `references/architecture.md` | Pattern Library：**Core**（七层映射、schema、写入门控、检索/重排、双路由、Forget tombstone、上下文预算）+ **Memory Type Taxonomy**（semantic/episodic/procedural 正交分类）+ **Advanced**（background consolidation、progressive disclosure、context planner、hygiene、entity retrieval、observability）+ **Optional**（graph / bi-temporal / shared memory） |
+| `references/testing.md` | 三层测试分类（Universal Hard Invariant / Capability Hard Tests / Quality Metrics）、19 个能力场景、能力 → 场景映射、Root Cause 判定（CASE A–F）、验收指标、Quality Metrics（write / retrieval / context / hygiene / end-task delta / cost） |
 
 ## 安装
 
