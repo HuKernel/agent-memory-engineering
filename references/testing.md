@@ -1,8 +1,8 @@
 # 记忆/上下文系统测试方案
 
-来自真实 bug 的测试集。每个用例都对应一次线上真实故障或高危路径，不是想象出来的覆盖。术语按 SKILL.md 约定：thread == conversation == 会话。
+来自真实 bug 的测试集。每个用例都对应一次线上真实故障或高危路径，不是想象出来的覆盖。定位：**测试矩阵 / 评估库**——BUILD / AUDIT / VERIFY 按项目启用的能力选择适用场景，不机械运行全部。术语按 SKILL.md 约定：thread == conversation == 会话。
 
-## 1. 十四大核心场景
+## 1. 十五大核心场景
 
 | # | 场景 | 构造 | 断言 |
 |---|---|---|---|
@@ -20,6 +20,7 @@
 | 12 | 多用户/多项目越权 | User A/B 各有 global memory 与 thread；Project A/B 各有 project memory | 任何检索路径（向量/关键词/digest/摘要）零跨 user、零跨 project 泄漏；user_id 是所有查询第一条件 |
 | 13 | 同用户跨项目隔离 | 同一 User 在 Project A、Project B 各写 project memory；另发一个不带 project 上下文的请求 | Project B 请求中 Project A 记忆零召回（反之亦然）；无 project_id 的请求对两条 project memory 均 0 召回（fail closed）；global memory 不受影响 |
 | 14 | valid_to 边界 | 同一 user 两条 active 记忆：valid_to = NULL 与 valid_to = 昨天 | NULL 条正常召回（NULL = 永久有效）；已过期条零召回 |
+| 15 | Tombstone scope 隔离 | 同一 User：Project A 中事实 X 已 forget（且 X 已进入 A 的会话摘要）；Project B 中也存在事实 X；另构造 thread 级 tombstone 对照 | Project A 请求：X 零召回、摘要中 X 被注入期屏蔽；Project B 请求：X 正常召回，不受 A 的 tombstone 影响；thread tombstone 只屏蔽本 thread 摘要，不波及其他会话/项目 |
 
 场景 2 的标准测试对话（可直接抄）：
 
@@ -49,14 +50,14 @@ B 中询问: "我这个会话里问过你什么？"
 ```
 query / current_user_id / current_thread_id
 路由结果（route, needs_memory, history_scope）
-当前会话消息 / 各源召回内容（分：session digest / user memory / assets）
+当前会话消息 / 各源召回内容（分：会话摘要 session summary / digest / user memory / assets）
 session summary / 重排后记忆 / 最终 prompt 各段拼接
 LLM 回答 / memory write 结果
 ```
 
 ## 4. 复现方法论
 
-1. **真实环境复现**：在真实后端开全新会话，只放一句引导语，问"这个会话里我问过什么"——回答混入的其他会话内容与某个 digest 输出逐字对应 = 注入实锤（非幻觉）。
+1. **真实环境复现**：在真实后端开全新会话，只放一句引导语，问"这个会话里我问过什么"——回答混入的其他会话内容与某个中间产物（digest/召回结果/摘要）逐字对应 = 注入实锤（非幻觉）。
 2. **自动化复现**：写成 pytest 用例，故意走"修复前路径"（getattr 默认旧值），确保**修复前 FAIL**——这是 bug 的可重复证据；修复后同用例 PASS。
 3. 修复后必须回归**合法路径**：显式跨会话查询（"以前聊过什么"）和通用用户记忆（"我通常喜欢什么"）不能被误伤。
 
@@ -80,6 +81,23 @@ assert expected_scope_marker in out["history_digest"]
 - Cross-project leakage rate（同 user 跨 project 召回比例）= 0（project 记忆须 scope_id == ctx.project_id，无 project 上下文 fail closed）
 - Superseded leak rate（普通问题召回 superseded 记忆的比例）= 0（historical route 除外）
 - Ghost memory rate（已 forget/delete 的内容仍出现在最终 prompt 的比例）= 0
-- 当前会话真实信息 recall（B 的提问全在 digest 中）= 100%
+- Current-thread recall（B 会话真实提问能从当前 thread 消息与会话摘要正确恢复；digest 是 user 级快照，只服务显式历史路由，不承载当前会话内容）= 100%
 - Context token 上限随对话轮数的增长曲线 = 有界（摘要封顶）
 - 合法跨会话路径通过率 = 100%（不许为隔离误伤正当功能）
+
+## 7. 能力 → 场景映射（BUILD / AUDIT / VERIFY 共用）
+
+| 启用的能力 | 必测场景 |
+|---|---|
+| 长期 User Memory | 1 / 5 / 6 / 7 / 14 |
+| 跨会话恢复 | 2 / 3 |
+| Task 运行态 | 8 |
+| RAG | 9（RAG 半段） |
+| Tools / API | 9（工具半段） |
+| Historical Memory | 10 |
+| Forget | 11 / 15 |
+| 多用户 | 12（user isolation 部分） |
+| Project | 12（project isolation 部分）+ 13 |
+| Summary / 长会话 | 4；同时支持 Forget 时加验 11 的 Ghost Summary 断言 |
+
+未启用的能力 → 跳过对应场景并在 evaluation_plan.skipped_tests 写 reason，不机械运行全部。DEBUG VERIFY 的能力回归同查本表：修改影响到的 capability，其对应场景必须全绿。

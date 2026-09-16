@@ -1,20 +1,24 @@
 ---
 name: agent-memory-engineering
 description: >
-  Design, audit, and fix memory & context systems for LLM Agent applications,
+  Design, build, implement, evaluate, audit, and debug memory & context
+  systems for LLM Agent applications — full lifecycle (requirements →
+  architecture → implementation → evaluation → debugging → migration),
   distilled from a production system (FastAPI + LangGraph + PostgreSQL/pgvector).
-  Covers long-term memory, memory writer gating, conflict resolution, hybrid
-  retrieval, session/conversation isolation, rolling summaries, and token budgeting.
+  Covers memory requirements mapping, layer selection, memory writer gating,
+  conflict resolution, hybrid retrieval, session/conversation isolation,
+  rolling summaries, token budgeting, and forget/tombstone suppression.
   Use whenever the user mentions Agent memory, 记忆系统, 长期记忆, 上下文管理,
   context engineering, memory writer, 记忆检索, 记忆污染, 跨会话泄漏/串会话,
-  conversation summary, session isolation, or wants to add / audit / refactor
-  the memory or context layer of any AI agent project — even if they only
-  describe a symptom like "agent 记错了" or "answers mention other conversations".
+  conversation summary, session isolation, or wants to design / build / add /
+  audit / evaluate / refactor / fix the memory or context layer of any AI
+  agent project — even if they only describe a symptom like "agent 记错了"
+  or "answers mention other conversations".
 ---
 
-# Agent Memory / Context Engineering（实战方法论）
+# Agent Memory / Context Engineering（全生命周期实战方法论）
 
-提炼自真实生产项目踩过的坑。核心信念：**记忆系统的 bug 几乎都是 scope/隔离问题，不是向量相似度问题**；上下文的 bug 几乎都是"错误内容在哪一步第一次进入流水线"的问题。
+提炼自真实生产项目踩过的坑。覆盖 Memory / Context System 完整生命周期：**需求 → 架构 → 落地 → 评估 → 调试 → 迁移**——不是 Memory 教程，也不只是 Debug 工具。核心信念：**记忆系统的 bug 几乎都是 scope/隔离问题，不是向量相似度问题**；上下文的 bug 几乎都是"错误内容在哪一步第一次进入流水线"的问题。
 
 ## 术语约定
 
@@ -24,9 +28,10 @@ description: >
 
 | 用户要什么 | 做法 |
 |---|---|
-| 从零设计记忆/上下文系统 | 读 `references/architecture.md`，按"七层映射 → 写入门控 → 检索 → 摘要 → 预算"顺序设计 |
-| 现有系统有症状（串会话/记错/污染/答非所问） | 走下面的「调试工作流」定位 Root Cause，再查 `references/architecture.md` 对应模式 |
-| 要写测试 / 验收 / 评估指标 | 读 `references/testing.md` |
+| 从零设计 / 建设 / 接入 Memory System | 走「BUILD 工作流」：DISCOVER → MODEL → DESIGN → MAP → IMPLEMENT → EVALUATE |
+| 已有 Memory System，想评估设计质量 | 走「AUDIT 工作流」：只读检查 + 差距报告，默认不改代码 |
+| 系统有症状（串会话/记错/污染/答非所问） | 走「调试工作流」定位 Root Cause，再查 `references/architecture.md` 对应模式 |
+| 要写测试 / 验收 / 评估指标 | 读 `references/testing.md`，按项目能力选场景 |
 
 ## 铁律（冲突时按此序裁决）
 
@@ -40,6 +45,129 @@ description: >
 8. 被 Forget 的事实不得回流最终 prompt：tombstone 在注入期屏蔽旧摘要/digest/缓存里的原话（`references/architecture.md` §5）；仅靠"以记忆段为准"的仲裁声明不够。
 
 **参数哲学**：本文与 references 里的一切数字（阈值/权重/窗口/预算）都是 **Recommended Default**——经验起点，应通过真实数据集与 eval 校准，不是架构真理。Hard Invariant 是行为约束（见 `references/architecture.md` §0），与数字无关，不许放松。
+
+## BUILD 工作流：DISCOVER → MODEL → DESIGN → MAP → IMPLEMENT → EVALUATE
+
+为"从零设计 / 重建 / 接入 Memory System"的项目服务。`references/architecture.md` 是**模式库不是模板**——每一步都在做"选择 + 说理由"，不是照抄全套。全程约束：铁律 1–8、YAGNI、复用现有栈、minimal change、可测试。
+
+### 1. DISCOVER —— 理解产品，而不是立刻套架构
+
+先从代码库 / PRD / schema / 现有实现**推断**答案；只有影响架构且确实缺失的信息才问用户，不发问卷。
+
+```yaml
+product_context:
+  agent_type:            # Agent 是干什么的
+  user_model:            # 谁在用；是否多用户
+  conversation_model:    # 是否跨会话回归；会话如何创建识别
+  has_projects:          # 产品是否存在 project 概念
+  has_tasks:             # 是否有跨轮任务运行态
+  has_rag:               # 是否有文档库/知识检索
+  has_tools:             # 是否有工具/API 调用
+  external_mutable_data: # 实时可变数据（资产/进度/价格…）
+  persistence:           # 现有 DB 与 ORM
+  vector_store:          # 现有向量库（没有则标注）
+  cache:                 # 现有缓存设施
+```
+
+同时判定三件事：哪些信息需要长期记忆、哪些只是短期运行状态、哪些已有独立 Source of Truth（有 SoT 的只实时查询，铁律 7）。
+
+### 2. MODEL —— 信息分类（Memory Requirement Mapping）
+
+先分类信息，不先设计数据库。每类信息建立映射：
+
+```text
+信息 → 生命周期(long/task/session/request) → scope(global/thread/project)
+     → Source of Truth → 是否长期记忆 → Storage → Retrieval Route
+```
+
+例：「用户喜欢深色主题」→ 长期 / global / 用户明确陈述 → **是**长期记忆 → memory 表 → 正常召回。
+例：「当前任务完成 70%」→ task / task state 是 SoT → **不是**长期记忆 → 结构化运行态 → 实时读取。
+
+最常见反模式 = 把所有东西塞进 Memory Table。分类结果就是选层与写策略的输入。
+
+### 3. DESIGN —— 按需选层，逐层说理由
+
+七层（architecture.md §1）逐层判定 required / optional / not needed：
+
+```yaml
+selected_layers:
+  working:   {enabled: true}
+  session:   {enabled: true}
+  task:      {enabled: true}
+  project:   {enabled: false, reason: "产品无 project 概念，YAGNI"}
+  user:      {enabled: true}
+  knowledge: {enabled: true, reason: "有课程文档 RAG"}
+  external:  {enabled: true}
+```
+
+必须能回答：**为什么这个项目需要这一层、为什么不需要另一层**。随后按 architecture.md 模式设计：Writer 门控 / Visibility / 冲突消解 / Forget / 检索与双路由 / 摘要 / Context Builder / 预算 / RAG 与 Tool 隔离。偏离模式库的每一处都要写理由；没有理由就照模式库。
+
+### 4. MAP —— 映射到现有技术栈
+
+先识别现有栈（语言 / Agent 框架 / DB / 向量库 / 缓存），再把 Pattern → Existing Component，**优先复用**，不为符合本 skill 新建重复基础设施：
+
+```text
+Task Memory          → LangGraph State / 请求 State
+User Memory          → 现有 PostgreSQL 表 + pgvector
+Knowledge Retrieval  → 现有 Qdrant collection / ES 索引
+Short-lived cache    → Redis
+```
+
+FastAPI + LangGraph + PostgreSQL/pgvector 只是参考实现，不是要求。
+
+### 5. IMPLEMENT —— 落地
+
+- **有代码**：主动读项目找 request entry、LLM 调用链、message storage、persistence、vector retrieval、context builder、summary、tests → 输出 implementation plan（Schema/Model、Writer、Retrieval、Context Builder、Summary、Routing、Tests、Migration）→ 直接落地实现。仍守 minimal change / reuse / YAGNI。
+
+**自主执行边界**：用户已明确请求"设计并实现 / 帮我把 Memory 做好 / 接入 Memory / 直接改"时，DISCOVER → EVALUATE 连续完成，**不在 DESIGN 后默认停下二次确认**。只有这些情况必须停下来问：destructive migration、数据删除、不可逆 schema change、涉及生产数据的大规模迁移、两种方案都会显著改变产品行为且现有上下文无法裁决、缺失会改变架构的关键业务信息。新增 service/repository/memory writer、调整 context builder、加测试、加普通 schema field——属原始请求范围内的正常实现，无需再确认。
+- **无代码（只有产品需求）**：输出 Implementation-ready Blueprint，工程师可直接开工：
+
+```yaml
+memory_system_blueprint:
+  product_model:               # DISCOVER 结论
+  selected_layers:             # DESIGN 结论
+  information_mapping:         # MODEL 结论
+  write_policy:                # what_to_store / what_not_to_store / explicit_vs_inferred
+                                # / dedup / conflict_resolution / forget
+  retrieval_policy:            # visibility / normal_route / historical_route
+                                # / hybrid_retrieval / reranking
+  context_policy:              # blocks / priority / budgets / drop_policy
+  summary_policy:
+  storage_design:              # 表 schema / 向量库 / 缓存 key 设计
+  implementation_components:   # Pattern → 现有组件清单
+  evaluation:                  # required_tests / metrics
+```
+
+### 6. EVALUATE —— 按能力选测试，不机械全跑
+
+按 `references/testing.md` §7「能力 → 场景映射」选择（如：有长期 User Memory → 必测 1/5/6/7/14；支持 Forget → 11/15；无 project → 跳过 13 并写 reason）。未启用的能力跳过对应场景并在 skipped_tests 写 reason，不机械全跑。
+
+```yaml
+evaluation_plan:
+  required_tests: []
+  optional_tests: []
+  skipped_tests:
+    - test: 场景 9
+      reason: "无 RAG，仅保留工具结果断言"
+```
+
+## AUDIT 工作流（只读体检，默认不改代码）
+
+用户说"帮我看看这个 Memory System 设计得怎么样"时走这条路。只读检查、产出差距报告；默认不改代码。用户要求修复时**转「调试工作流」**，默认从 REPRODUCE / TRACE 开始建立修复证据；只有 AUDIT 已同时具备 稳定复现、failing test、first contamination point、root cause、high-confidence 证据时，才允许带证据直接进 PATCH——不为省重复步骤跳过 Root Cause 证明。
+
+```text
+INSPECT → CHECK INVARIANTS → CHECK MAPPING → CHECK WRITE PATH → CHECK READ PATH
+→ CHECK CONTEXT PATH → SELECT TEST MATRIX → REPORT GAPS
+```
+
+1. **INSPECT**：只读侦察，同调试工作流 INSPECT 的 8 个检查点，但对象是整个系统而非单个 bug。
+2. **CHECK INVARIANTS**：对照 architecture.md §0 的 8 条 Hard Invariant 逐条判定 满足 / 违反 / 不适用。
+3. **CHECK MAPPING**：可变状态是否进了长期记忆？实时数据有没有独立 Source of Truth？RAG/工具结果是否被持久化成 memory？
+4. **CHECK WRITE PATH**：写入门控、查重、冲突消解、证据优先级（explicit > inferred_*）。
+5. **CHECK READ PATH**：Visibility 硬过滤（user → scope → status → valid_to）、Normal/Historical 双路由、缓存 key 是否含会话维度。
+6. **CHECK CONTEXT PATH**：段清单、预算与丢弃顺序、能力门控、tombstone 注入期屏蔽。
+7. **SELECT TEST MATRIX**：按启用能力从 testing.md 选场景（同 BUILD 的 EVALUATE）。
+8. **REPORT GAPS**：结构化输出 `{gaps: [{severity, violated_invariant, location, fix_hint}], test_matrix, priority}`，修复优先级按铁律下的 PATCH 优先序（数据 Scope 隔离 > Context Routing > Retrieval Filter > …）排。
 
 ## 调试工作流：INSPECT → REPRODUCE → TRACE → DIAGNOSE → PATCH → VERIFY
 
@@ -93,15 +221,19 @@ affected_scope:              # 受影响的 scope 与查询路径
 - minimal patch 优先：改一个 WHERE 条件优于改检索策略，改检索策略优于调重排权重，任何都优于重设计管线。禁止借修 bug 顺手重构 Memory System。
 - 动手前先向用户说明：bug 在哪个文件哪个函数、为什么发生、改什么、影响面。
 
-### 6. VERIFY —— 七项回归全绿才算完
+### 6. VERIFY —— 核心回归 + 能力回归全绿才算完
+
+固定核心回归（每次必跑）：
 
 1. 原 bug 的 failing test 转 PASS；
 2. 跨会话隔离：testing.md 场景 2（B 会话零泄漏）；
 3. 合法跨会话不误伤：显式问"以前聊过什么"仍能召回；
 4. 用户级 global memory 不误伤："我通常喜欢什么"仍工作；
-5. superseded 记忆不回流：场景 1；
+5. superseded 记忆不回流 normal route：场景 1；
 6. 重复记忆不重复召回：场景 7；
 7. context token 有界：场景 4。
+
+再加**能力回归**：列出本次修改的 affected_capabilities，按 testing.md §7「能力 → 场景映射」选测试——改 Forget 跑 11/15；改 Project Visibility 跑 12/13；改 valid_to 跑 14；改 Historical Route 跑 10；改 Writer 输入边界跑 9。原则：**修改影响到的 capability，其对应测试必须全部通过**。
 
 ## 核心模式速查（详细版在 references/architecture.md）
 

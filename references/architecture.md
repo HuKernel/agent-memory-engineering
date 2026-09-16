@@ -1,6 +1,6 @@
 # 记忆/上下文架构详细模式
 
-生产验证过的完整设计。原则：**用现有字段组合表达分层，不为架构图好看建新表**。
+生产验证过的完整设计。定位：**Pattern Library / 设计参考**，不是必须照抄的固定架构——BUILD Workflow 按产品需求选择需要的层与机制，不默认全部启用；偏离本文模式必须说明理由。原则：**用现有字段组合表达分层，不为架构图好看建新表**。
 
 ## 0. Hard Invariant 与 Recommended Default
 
@@ -136,8 +136,17 @@ digest 是 user 级快照：把它注入"这个会话"类问题，就是最典�
 
 1. **识别**：路由层识别 forget 请求，向量/字面定位目标 active 记忆（限定本 user + 当前可见 scope）。
 2. **tombstone 化**：命中行转 `status='forgotten'`，不物理删除；content 与 embedding 保留，仅供第 4 步匹配。
-3. **同步失效**：向量索引移除该条；该 user 的检索缓存与 digest TTL 缓存一并失效。
-4. **注入期屏蔽**：Context Builder 在注入会话摘要/digest/缓存上下文前，用本 user 全部 tombstone 对每段做匹配（cosine distance < 0.15，复用查重阈值，或字面包含），命中句子剥离，剥离不净则整段丢弃。摘要保持不可变。
+3. **同步失效**：从 **normal retrieval 向量索引**移除该条；DB 行内 embedding 保留、仅供 suppression 匹配——tombstone 永不回到普通检索索引。vector store 做不到"库留行、索引删"时，suppression 改用 content fingerprint / 关键词实体匹配等独立表示，同样不得回插检索索引。该 user 的检索缓存与 digest TTL 缓存一并失效。
+4. **注入期屏蔽（遵守 scope）**：Context Builder 在注入会话摘要/digest/缓存上下文前，用**本请求可见的** tombstone 对每段做匹配（cosine distance < 0.15，复用查重阈值，或字面包含），命中句子剥离，剥离不净则整段丢弃。摘要保持不可变。tombstone 可见性用独立的 suppression_visible，与 visible() 共享 user/scope 判定形状但**不是一个函数**——正常召回看 status='active'，抑制看 status='forgotten'，且不看 valid_to：
+
+    suppression_visible(t, ctx) = t.user_id == ctx.user_id
+                              AND scope_allowed(t.scope, ctx.route)
+                              AND (t.scope != 'thread'  OR t.scope_id == ctx.thread_id)
+                              AND (t.scope != 'project' OR (ctx.project_id IS NOT NULL
+                                                            AND t.scope_id == ctx.project_id))
+                              AND t.status == 'forgotten'
+
+   global tombstone 对该 user 的所有允许上下文生效；thread tombstone 只屏蔽本 thread；project tombstone 要求 ctx.project_id 非空且匹配，无 project 上下文不可见（fail closed）。Project A 的 tombstone 不得误杀 Project B 的合法同形事实。
 5. **防复活**：查重候选排除 forgotten（§3）——forget 后用户重提该事实 = 写新行，tombstone 不动。
 
 **tombstone ≠ Memory Fact**：tombstone 永不进入任何 prompt 段，不会把"用户喜欢辣"重新告诉模型；它只告诉系统——旧摘要里的这句话不得作为当前用户事实使用。tombstone 通常个位数，注入期匹配开销可忽略。
@@ -172,5 +181,5 @@ system(固定) + [风格偏好] + [长期记忆(每条截断，top_k/总预算�
 ## 8. 迁移哲学
 
 - Phase 1 正确性：写/读路径的 scope 隔离、冲突证据优先级、重复清理——零 Schema 变更。
-- Phase 2 表达力：project/task 等新维度，**等产品层出现对应概念再建**；迁移走幂等补列（ADD COLUMN IF NOT EXISTS），旧行 NULL=全局可见，天然兼容。
+- Phase 2 表达力：project/task 等新维度，**等产品层出现对应概念再建**；迁移走幂等补列（ADD COLUMN IF NOT EXISTS）。旧行 NULL **不得自动解释为 global**：scope=NULL 是未知 scope，`scope='global' AND scope_id=NULL` 才是合法 global memory。旧 schema 历史定义能明确证明 NULL==global 的，迁移时显式 backfill `scope='global'`；证明不了的 fail closed——不参与正常召回，直到完成迁移/归类。不为 backward compatibility 扩大可见范围。
 - Phase 3 预算：按问题类型分档 token 预算（普通/项目技术/知识/个人各不同权重），一次路由字段改动。
