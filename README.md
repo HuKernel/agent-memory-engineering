@@ -93,12 +93,12 @@ npx skills add HuKernel/agent-memory-engineering --list
 | 你说 | 它走 |
 |---|---|
 | "从零给 Agent 设计记忆系统" | BUILD 工作流：DISCOVER → MODEL → DESIGN → MAP → IMPLEMENT → EVALUATE（层 / memory type / representation / advanced pattern / routing strategy 逐项选择 + 理由） |
-| "Agent 怎么理解请求 / 识别意图 / 做能力路由" | Request Understanding & Routing：多维 request model、Level 0–5 路由分级、capability routing、ambiguity fail-closed |
+| "Agent 怎么理解请求 / 识别意图 / 做能力路由" | Request Understanding & Routing：多维 request model、Level 0–5 路由分级（含语义向量路由与判定器级联）、路由数据闭环、capability routing、ambiguity fail-closed |
 | "帮我看看这个 Memory System 设计得怎么样" | AUDIT 工作流：只读体检 + 差距报告 |
 | "Agent 串会话了 / 记错了用户信息" | DEBUG 工作流：INSPECT → REPRODUCE → TRACE → DIAGNOSE → PATCH → VERIFY |
-| "给记忆系统写测试和评估指标" | 三层测试体系（Universal Hard Invariant / Capability Hard Tests / Quality Metrics） |
+| "给记忆系统写测试和评估指标" | 三层测试体系（Universal Hard Invariant / Capability Hard Tests / Quality Metrics）+ 能力成熟度三层次（基础回忆 / 多会话检索 / 主动服务）+ 公开基准校准（LongMemEval / LoCoMo 映射） |
 
-核心方法论：Request Understanding & Routing（多维请求模型 / 路由分级 / multi-intent / Routing ≠ Authorization / 歧义 fail-closed / paraphrase 鲁棒性）、统一 Runtime Pipeline、Design Artifact Protocol（设计落盘 `AGENT_MEMORY_DESIGN.md` + 跨会话续作 + Definition of Done）、七层记忆模型、semantic/episodic/procedural 分类、Writer 双 candidate source 门控、Forget/tombstone、Normal/Historical 双路由、Procedural Authority Boundary、Structured Core + Raw History、Memory Representation Strategy、Context Stability 三段布局、31 个能力测试场景。纯 instruction + references，无 MCP、无外部服务依赖。
+核心方法论：Request Understanding & Routing（多维请求模型 / 路由分级含语义向量路由与判定器级联 / 路由数据闭环 / multi-intent / Routing ≠ Authorization / 歧义 fail-closed / paraphrase 鲁棒性）、统一 Runtime Pipeline、Design Artifact Protocol（设计落盘 `AGENT_MEMORY_DESIGN.md` + 跨会话续作 + Definition of Done）、七层记忆模型、semantic/episodic/procedural 分类、Writer 双 candidate source 门控、Forget/tombstone、Normal/Historical 双路由、Procedural Authority Boundary、Structured Core + Raw History、Memory Representation Strategy、Memory Interface Pattern（pipeline / tool / platform）、Context Stability 三段布局、Agent 状态栏（末尾元信息注入）、Sub-agent 上下文隔离、五层压缩分级、31 个能力测试场景、能力成熟度三层次与公开基准校准。纯 instruction + references，无 MCP、无外部服务依赖。
 
 ## Repository structure
 
