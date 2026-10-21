@@ -228,7 +228,7 @@ Visibility 硬过滤（上式，先于一切语义排序）
 → 可选 LLM Reasoner 过滤无关 + 冲突只留最新 → top_k 截断（记忆段总预算见 §0）
 ```
 
-权重理由：语义主导但非独裁；乘法公式在任一信号为 0 时把记忆打没，**用加权和不用乘积**；recency 压到最低——"用户偏好 Python"三年前写的今天依然成立。
+权重理由：语义主导但非独裁；乘法公式在任一信号为 0 时把记忆打没，**用加权和不用乘积**；recency 压到最低——"用户偏好 Python"三年前写的今天依然成立。**强化次数与使用频次合起来是 usage-based activation（访问历史）**，与 recency（内容产生时间）是两个正交信号——ACT-R base-level activation 与 Generative Agents 检索公式的共同结论：长期事实的价值由使用历史证明，不由写入时间决定。§2 schema 已有 `access_count / reinforcement_count / last_confirmed_at` 支撑：再次陈述同一事实 → reinforcement 路径（§3），被召回并注入 → 检索期递增 `access_count`；久无访问的记忆自然衰减排序位，不删除、不降 validity（与 §9.1 episodic 的 historical validity ≠ retrieval salience 同族）。
 
 元问题（"我问过什么"类）分两类，都不走向量检索，数据源必须跟着会话范围路由走：
 
@@ -320,6 +320,14 @@ system(固定) + [风格偏好] + [长期记忆(每条截断，top_k/总预算�
 推荐布局：`[Stable Prefix] → [Semi-stable / Retrieved] → [Dynamic Tail]`——不是绝对固定顺序，BUILD 可按目标框架调整，但 dynamic request data 不应无理由放在 stable prefix 前部。现有 §6 pipeline（system → … → query）与该布局兼容：system 段天然是 stable prefix，query 天然是 tail。
 
 目的：提高 KV / Prompt Cache 前缀复用、降低 repeated-prefix cost。这是 **cache-friendly context layout pattern**，不绑定特定供应商实现——模型/API 不提供可利用缓存时，stable-prefix 思想仍保留（布局稳定本身减少轮间 diff、便于调试），cache benefit 标 `not_applicable`。Cache Efficiency 指标（testing.md §11）由 §9.9 context trace 的可选字段支撑（stable_prefix_fingerprint / prefix_mutated 等）；prefix 确需变更（业务改变 system/tool configuration）时必须记录 `prefix_mutation_reason`。
+
+### Attention Budget 与位置敏感放置
+
+token 预算管"放多少"，attention budget 管"模型看得见多少"——注意力是稀缺资源，不随 token 数线性扩展：上下文越长，中段内容的有效召回越差（lost in the middle）。落地约束（与三段布局兼容，不新增段）：
+
+- **位置敏感放置**：关键约束 / 安全规则 / pinned 内容放 Stable Prefix 头部，最新证据与 query 天然在 Dynamic Tail 尾部；低优先级、可再检索的内容才放中段。
+- **工程表达**：attention 无法精确计量，落地手段就是"更少的无关 token"（Context Waste 指标，testing.md §8）+ 能力门控物理跳过——砍掉不需要的段，优先于压缩需要的段。
+- **平台 context editing 交互**：宿主提供自动 context editing（接近上限清老内容）时，被清内容属 Dynamic Tail 可接受；tombstone 注入期屏蔽（§5）与 SummarySegment 不可变（§5）语义不因平台清理放松，清理后补充注入的上下文仍须过本节组装规则与预算。
 
 ## 7. 反注入与安全
 
@@ -522,5 +530,15 @@ attribution 语义：`attributed_memory_ids / attribution_confidence` 是 **obse
   - **Chapter 3 用户记忆和知识库**：四种存储格式（Simple Notes / Enhanced Notes / JSON Cards / Advanced JSON Cards）、三套正交分类（记忆层次 × 存储格式 × 认知类型）、轨迹 append-only（“轨迹是流水账，长期记忆是档案”）、双层记忆架构（结构化卡片常驻提供概览 + 检索按需提供细节）、对话历史本身即知识库、上下文感知检索（索引期前缀）、记忆压缩与整理（筛选/聚类/抽象泛化）→ 对应本文 §1 Structured Core + Raw History、§2 Representation Strategy、§4 Raw History Retrieval、§9.2/§9.3。
   - **Chapter 7 Agent 评估**：评估驱动校准（指标先行、阈值来自真实数据而非拍脑袋）→ 对应 request-understanding.md §6（routing_confidence 阈值经 eval 校准，自报分数不当真实概率）与 testing.md §8 Routing Quality。
 - 主流 Agent 工程共识（不绑定框架，仅来源说明）：Anthropic《Building Effective Agents》《Effective Context Engineering for AI Agents》、OpenAI Agents SDK（handoffs / guardrails）、LangGraph（routing / structured output / conditional edges）——simplest sufficient router、structured output 路由、handoff vs agent-as-tool、guardrail 与路由分离 → 工程化为 request-understanding.md §2（Level 0–5）、§4（混合路由）、§9（Handoff vs Agent-as-Tool）、§0（Routing ≠ Authorization）。
+- 学术来源（仅思想溯源；工程化以本文 Hard Invariant 为准，冲突时 invariant 优先）：
+  - **MemGPT**（Packer et al., 2023）：主上下文 / 外部存储分页、self-editing memory → §1 分层思想的对话式变体（本仓库用管线门控替代 self-editing，写入统一过 §3）。
+  - **Generative Agents**（Park et al., 2023）：memory stream 检索分 = relevance + recency + importance、reflection 沉淀 → §4 加权重排（信号同族、权重取舍不同）与 §9.2/§9.3 巩固思想。
+  - **ACT-R base-level activation**（Anderson & Schooler）：访问历史强化、久未访问衰减 → §4 usage-based activation 与 recency 的正交区分。
+  - **Mem0**（Chhikara et al., 2025）与 **Zep / Graphiti**（2025）：两阶段提取-更新（ADD/UPDATE/DELETE/NOOP）、时序知识图谱 → §3 冲突消解三动作（REINFORCE/SUPERSEDE/IGNORE + NOOP 即 IGNORE）与 §10.1/§10.2 的领域判定。
+  - **A-MEM**（Xu et al., 2025）：Zettelkasten 式笔记动态组织 → §9.3 hygiene 的组织思想（未引入其链接结构）。
+  - **MemOS**（2025）：记忆调度操作系统化 → 判定为产品架构非方法论，仅吸收热/冷分层与后台调度思想于 §9.2/§9.3。
+  - **Reflexion**（Shinn et al., 2023）与 **Voyager**（Wang et al., 2023）：语言反馈沉淀为经验、skill library 即 procedural memory → §9.7 episodic → procedural 学习环。
+  - **LoCoMo**（Maharana et al., 2024）与 **LongMemEval**（Wu et al., 2024）：长期对话 / 记忆基准 → testing.md §12 External Benchmark Calibration。
+  - **Anthropic Memory Tool / Context Editing**（2025）：记忆工具化与平台上下文管理 → SKILL.md MAP 的 Memory Interface Pattern 与 §6 Attention Budget 交互边界。
 - 本仓库生产系统实践（FastAPI + LangGraph + PostgreSQL/pgvector）——scope 隔离、Forget/tombstone、Writer 门控、procedural authority boundary、双路由、三层测试分类等 Core 机制来自线上真实故障与修复。
 - Stable Prefix / Semi-stable / Dynamic Tail 三分段命名、`raw_history_reference` 表示、Cache Efficiency / Representation Fitness 评估指标、Request Understanding & Routing 的 Request Model / 路由分级 / 收编表为基于上述来源的**工程化扩展**，非原书原文。

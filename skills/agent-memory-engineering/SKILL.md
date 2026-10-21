@@ -40,7 +40,7 @@ description: >
 | 系统有症状（串会话/记错/污染，或 意图识别错误/路由错误/工具选错/能力误激活/错误跨会话历史检索） | 走「调试工作流」定位 Root Cause（CASE R / A–F），再查对应 reference：routing → `request-understanding.md`；memory/context → `architecture.md`；测试 → `testing.md` |
 | 要写测试 / 验收 / 评估指标 | 读 `references/testing.md`，按项目能力选场景 |
 
-**references 导航**：`architecture.md` = Memory/Context 模式库（§0 Hard Invariant / §1 七层与 Core-Raw / §2 Representation / §3 Writer / §4 检索 / §5 Forget 与摘要 / §6 Context / §9 taxonomy 与 Advanced / §10 特定领域）；`request-understanding.md` = 请求理解与路由模式库（§1 request model / §2 Level 0–5 / §3 taxonomy / §4–§5 混合路由与 fail-closed / §8 收编表 / §10 trace）；`testing.md` = 评估矩阵（31 场景、三层体系、能力→场景映射）。已知主题按 § 直读；不确定位置按关键词 Grep（`tombstone` / `scope_intent` / `fail closed` / `supersede` / `capability_plan`）；本文是路由与约束，细节与 references 冲突时以 references 为准。
+**references 导航**：`architecture.md` = Memory/Context 模式库（§0 Hard Invariant / §1 七层与 Core-Raw / §2 Representation / §3 Writer / §4 检索 / §5 Forget 与摘要 / §6 Context / §9 taxonomy 与 Advanced / §10 特定领域）；`request-understanding.md` = 请求理解与路由模式库（§1 request model / §2 Level 0–5 / §3 taxonomy / §4–§5 混合路由与 fail-closed / §8 收编表 / §10 trace）；`testing.md` = 评估矩阵（31 场景、三层体系、能力→场景映射、公开基准校准 §12）。已知主题按 § 直读；不确定位置按关键词 Grep（`tombstone` / `scope_intent` / `fail closed` / `supersede` / `capability_plan`）；本文是路由与约束，细节与 references 冲突时以 references 为准。
 
 ## 铁律（冲突时按此序裁决）
 
@@ -309,6 +309,16 @@ Short-lived cache    → Redis
 
 FastAPI + LangGraph + PostgreSQL/pgvector 只是参考实现，不是要求。
 
+**Memory Interface Pattern**（接口形态选型，决定铁律 9 的 enforcement point 在哪层执行）：
+
+| 形态 | 做法 | 门控 / 隔离责任 |
+|---|---|---|
+| pipeline-injected | 检索管线按 visibility 过滤后注入 context（本文默认模式） | Writer 门控与 Visibility 硬过滤全在管线，模型只消费 |
+| tool-based | 记忆读写暴露为工具（memory_view / create / update / delete 类），Agent 自主调用 | 写入仍必须过 Writer 门控（candidate 不因来源是模型而免检）；Visibility 硬过滤在工具返回前强制执行 |
+| platform-managed | 宿主平台内置记忆与上下文管理（自带 memory tool / context editing 类机制） | 部分门控移交平台；采用前必须逐条核对平台机制与 Hard Invariant 的差异（scope 隔离、forget 语义、untrusted content 边界），平台覆盖不了的自行补层 |
+
+接口形态不改变铁律：任何形态下 "记住 X" 只产生 memory_write_candidate（铁律 9）、untrusted external content 永不直接成 memory（architecture.md §0.7）、Visibility 硬过滤不可降级为 prompt 约定（铁律 4）。
+
 ### 5. IMPLEMENT —— 落地
 
 **Host capability 语义**：本节按宿主实际能力执行——host 提供文件读写 / shell / 测试运行能力时直接执行；某项能力不可用时对该项降级为 implementation-ready 计划，不虚构执行结果。能用则用，不能用则明说；这不削弱自主执行原则。
@@ -351,7 +361,7 @@ memory_system_blueprint:
 
 ### 6. EVALUATE —— 按能力选测试，不机械全跑
 
-按 `references/testing.md` 三层分类选择：**A. Universal Hard Invariant**（§6 泄漏/回流 = 0 类，启用对应基础能力即必须满足）+ **B. Capability Hard Tests**（§1 场景 × §7「能力 → 场景映射」，能力启用才必测——如：有长期 User Memory → 1/5/6/7/14；支持 Forget → 11/15；启用 Request Understanding / Router → 24–31（capability-selective，见 §7）；无 project → 跳过 13 并写 reason）+ **C. Quality Metrics**（§8–§11：write / retrieval / routing / context / maintenance / end-task delta / cost）。未启用的能力跳过对应场景并在 skipped_tests 写 reason，不机械全跑；**Metric 阈值按项目校准，不是全项目统一硬门槛**。
+按 `references/testing.md` 三层分类选择：**A. Universal Hard Invariant**（§6 泄漏/回流 = 0 类，启用对应基础能力即必须满足）+ **B. Capability Hard Tests**（§1 场景 × §7「能力 → 场景映射」，能力启用才必测——如：有长期 User Memory → 1/5/6/7/14；支持 Forget → 11/15；启用 Request Understanding / Router → 24–31（capability-selective，见 §7）；无 project → 跳过 13 并写 reason）+ **C. Quality Metrics**（§8–§11：write / retrieval / routing / context / maintenance / end-task delta / cost）。未启用的能力跳过对应场景并在 skipped_tests 写 reason，不机械全跑；**Metric 阈值按项目校准，不是全项目统一硬门槛**——需要外部数据集校准 / 横向可比基线时按 `references/testing.md` §12 公开基准映射（LongMemEval / LoCoMo）选子集，基准不改变 Hard Invariant。
 
 ```yaml
 evaluation_plan:

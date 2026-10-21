@@ -106,12 +106,14 @@ npx skills add HuKernel/agent-memory-engineering --list
 skills/
 └── agent-memory-engineering/     ← 自包含、可单独安装的 Agent Skill
     ├── SKILL.md                  ← workflow / routing / execution
+    ├── evals/
+    │   └── evals.md              ← 触发正负样本 + 三工作流 golden trace（维护者自查）
     └── references/
         ├── architecture.md       ← memory/context pattern library + 统一 Runtime Pipeline
                                     （Hard Invariant / 七层 / Writer / 检索 / Context Stability…）
         ├── request-understanding.md ← request understanding & routing pattern library
                                     （Request Model / Level 0–5 / taxonomy / fail-closed / 收编表）
-        └── testing.md            ← evaluation matrix（31 场景 + 质量指标）
+        └── testing.md            ← evaluation matrix（31 场景 + 质量指标 + 公开基准校准映射）
 ```
 
 `skills/agent-memory-engineering/` 是唯一内容源（One Skill, One Source of Truth）；安装到各 agent 的副本由 skills CLI 管理。更新本仓库后重跑 `npx skills add HuKernel/agent-memory-engineering` 即可同步。

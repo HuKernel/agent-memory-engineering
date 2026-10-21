@@ -196,3 +196,22 @@ No Dedicated Router  vs  Router Enabled  vs  Oracle Route（人工标注的理�
 retrieval latency / writer latency / background consolidation cost / tokens injected / vector queries per request / LLM calls per request。汇总为 **Quality Gain / Token** 与 **Quality Gain / Latency** 两个 trade-off 视角（不设固定公式）——BUILD / AUDIT 用它检验“某个高级模式值不值”。
 
 **Cache Efficiency**（配合 architecture §6 Context Stability）：Stable Prefix Ratio（stable prefix 占输入 token 比例）/ Prefix Mutation Rate（前缀轮间变更率）/ Cache Reuse Rate（**平台支持时**）/ Repeated Prefix Tokens。**不做厂商专用 Hard Invariant**：provider 不提供 cache metrics 时标 `not_applicable`，不伪造；stable-prefix 布局本身（低 mutation rate）仍可用自有 trace 度量。指标由 memory_trace context 段可选字段支撑（stable_prefix_fingerprint / prefix_mutated / cache_eligible_tokens，architecture §9.9）；provider 提供真实 cache hit 记录真实值，否则 `unknown / not_applicable`，**不得推测**。
+
+## 12. External Benchmark Calibration（公开基准校准）
+
+§1–§11 是自造测试面：Universal Hard Invariant（红线）+ Capability Hard Tests（能力）+ Quality Metrics（项目内校准）。本节回答「参数哲学承诺的真实数据集校准用什么跑」——**内部能力 → 公开基准子集的映射**。基准是 Recommended Default 的校准工具，不是新的 Hard Invariant：基准分数永远不改变 §6 的 = 0 / = 100% 断言；跑不跑基准不阻塞 BUILD 交付。
+
+| 内部能力（本文场景/指标） | 公开基准子集 | 校准什么 |
+|---|---|---|
+| 场景 1/6/10/14（SUPERSEDE / valid_to / 双路由） | LongMemEval 的 **knowledge updates** 子集 | 时间冲突消解与"当前值 vs 历史值"的对外正确率 |
+| 铁律 fail-closed / 场景 28（unknown 兜底） | LongMemEval 的 **abstention** 子集 | 记忆不含答案时弃答而非编造 |
+| 场景 3/16（跨会话恢复 / episodic） | LongMemEval 的 **long-range session tracking**、LoCoMo multi-hop | 跨多会话信息聚合与回溯 |
+| §10 End-task Delta | LongMemEval-V2（2026，experience acquisition） | "记忆是否让 Agent 在未来任务上变强"——与 End-task Delta 同构 |
+| §8 Write Quality / Retrieval Quality | LoCoMo QA / event summarization | 写入质量与检索质量的横向可比基线 |
+
+使用原则：
+
+- **LongMemEval 难于 LoCoMo**；LoCoMo 已趋饱和，只作冒烟测试（smoke），校准结论以 LongMemEval 为主。
+- 已知批评：LongMemEval 部分测的是长上下文检索而非记忆系统——评估时按会话边界分块注入（模拟真实记忆系统按 thread 检索），不把全history 塞单次 context，否则测的是 context window。
+- 基准结果与内部 Hard Invariant 冲突时（如基准分数高但场景 2 泄漏）——**invariant 优先**；基准衡量普通质量，invariant 守住不可违反的正确性底线。
+- 本 skill 运行不访问外部数据：本节是「项目需要校准时该用什么」的指引，不是运行时依赖；引用仅为来源说明（architecture §11）。

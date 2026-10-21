@@ -2,6 +2,23 @@
 
 本文件记录仓库打包形态与核心方法论的显著变更。格式参考 Keep a Changelog，版本遵循 SemVer。
 
+## [1.6.0] - 2026-10-21
+
+对照学界基准与业界实践（LongMemEval / LoCoMo / Anthropic memory tool / 认知架构）的外围补强；Hard Invariant 与核心方法论不变。
+
+### Added
+
+- **External Benchmark Calibration**（testing.md 新增 §12）：内部能力 → 公开基准子集映射（knowledge updates / abstention / session tracking / End-task Delta ↔ LongMemEval(-V2) / LoCoMo）；基准是 Recommended Default 校准工具，不构成新 Hard Invariant，与内部 invariant 冲突时 invariant 优先
+- **Skill 自带 evals**（新增 `evals/evals.md`）：触发正样本 7 条 + 易误伤负样本 5 条（memory leak / 个人提醒等词形碰撞域）+ BUILD / AUDIT / DEBUG 三工作流 golden trace；维护者改 skill 后自查用，宿主代理不自动执行
+- **Memory Interface Pattern**（SKILL.md MAP 阶段）：pipeline-injected / tool-based / platform-managed 三形态选型表——接口形态决定铁律 9 的 enforcement point；任何形态下 Writer 门控与 Visibility 硬过滤不降级
+- **Attention Budget 与位置敏感放置**（architecture.md §6 新增小节）：token 预算管"放多少"、attention 管"看得见多少"；关键约束放头尾、低优先级放中段；平台 context editing 与 tombstone / SummarySegment 不可变的交互边界
+- architecture.md §11 新增**学术来源锚点**：MemGPT / Generative Agents / ACT-R / Mem0 / Zep·Graphiti / A-MEM / MemOS / Reflexion / Voyager / LoCoMo / LongMemEval / Anthropic Memory Tool，逐条标注与本仓库模式的对应及取舍（如 MemOS 判定为产品架构不引入）
+
+### Changed
+
+- architecture.md §4 权重理由显式化 **usage-based activation**：强化次数 + 使用频次（访问历史）与 recency（内容时新）正交；`access_count / reinforcement_count / last_confirmed_at` 已有字段支撑检索期递增，不新增 schema
+- SKILL.md references 导航与 EVALUATE 指向 testing.md §12；README 结构图补 evals/
+
 ## [1.5.0] - 2026-10-21
 
 流程机制补强（借鉴 Agent Skill 交互式架构师模式），方法论内容不变。
