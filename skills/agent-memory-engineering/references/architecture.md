@@ -563,5 +563,6 @@ attribution 语义：`attributed_memory_ids / attribution_confidence` 是 **obse
   - **Reflexion**（Shinn et al., 2023）与 **Voyager**（Wang et al., 2023）：语言反馈沉淀为经验、skill library 即 procedural memory → §9.7 episodic → procedural 学习环。
   - **LoCoMo**（Maharana et al., 2024）与 **LongMemEval**（Wu et al., 2024）：长期对话 / 记忆基准 → testing.md §12 External Benchmark Calibration。
   - **Anthropic Memory Tool / Context Editing**（2025）：记忆工具化与平台上下文管理 → SKILL.md MAP 的 Memory Interface Pattern 与 §6 Attention Budget 交互边界。
+  - **路由与级联（routing 专项）**：RouteLLM（Ong et al., 2024——偏好数据训练的成本感知路由，quality retention per cost 口径）、FrugalGPT（Chen et al., 2023——LLM 级联）、Aurelio Semantic Router 与 vLLM Semantic Router（2025，语义向量路由 + "when to reason" 的 model_selection）、Query Routing for RAG（2025）→ request-understanding.md §2 Level 1.5 与判定器级联、§3 数据闭环、testing.md §8 Router 评估方法。
 - 本仓库生产系统实践（FastAPI + LangGraph + PostgreSQL/pgvector）——scope 隔离、Forget/tombstone、Writer 门控、procedural authority boundary、双路由、三层测试分类等 Core 机制来自线上真实故障与修复。
 - Stable Prefix / Semi-stable / Dynamic Tail 三分段命名、`raw_history_reference` 表示、Cache Efficiency / Representation Fitness 评估指标、Request Understanding & Routing 的 Request Model / 路由分级 / 收编表为基于上述来源的**工程化扩展**，非原书原文。

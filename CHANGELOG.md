@@ -2,6 +2,21 @@
 
 本文件记录仓库打包形态与核心方法论的显著变更。格式参考 Keep a Changelog，版本遵循 SemVer。
 
+## [1.9.0] - 2026-10-21
+
+对照 2024–2025 路由研究与工业实践（RouteLLM / Aurelio & vLLM Semantic Router / FrugalGPT / Query Routing for RAG）补强 Request Understanding 支柱的实现层与工程闭环；Hard Invariant 不变。
+
+### Added
+
+- **Level 1.5 语义向量路由**（request-understanding.md §2 分级表新档）：route = utterance 样本集 embedding 索引 + 最近邻匹配与阈值触发——语义泛化但零 LLM call、毫秒级；填补 Level 1（规则）与 Level 2（LLM）之间的空档
+- **Router vs Cascade 与判定器级联**（request-understanding.md §2 新增段落）：与 Level 分级正交的成本维度——判定本身遵循 simplest sufficient（规则 → 向量 → 小 LLM → 大 LLM）；capability_plan 可选扩展 model_selection / reasoning_effort 键（"when to reason"）；不变式：降级判定不放宽可见性、升级判定不授予权限
+- **路由器数据闭环**（request-understanding.md §3 扩展）：冷启动 / 样本即索引（三类样本直接 embedding 化）/ 线上误判回流 hard negatives / paraphrase 扩增 / 偏好数据 / 评估集先行
+- **Router 评估方法**（testing.md §8 新增块）：golden set 构造（6:2:2 配比，boundary 决定区分度）、confidence 校准曲线（reliability diagram）、quality retention per cost、语义缓存命中率
+
+### Changed
+
+- architecture.md §11 学术来源补"路由与级联"条目（RouteLLM / FrugalGPT / Semantic Router ×2 / Query Routing for RAG）
+
 ## [1.8.0] - 2026-10-21
 
 吸收《深入理解 AI Agent》v1.2 Chapter 3 的未覆盖增量；Hard Invariant 不变。

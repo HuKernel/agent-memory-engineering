@@ -98,6 +98,7 @@ request_understanding:
 |---|---|---|---|
 | 0 无专职路由 | good tool descriptions + good instructions + 模型原生 tool selection，零额外 LLM call | 单 Agent、工具少、模型可直接可靠选择工具 | 误路由率可观测上升 |
 | 1 确定性路由 | rules / regex / request metadata / UI state / API route | "刚才/这个会话"→thread；"忘掉…"→forget；显式 project_id→project；realtime 请求→external SoT | 自然语言 scope / 组合意图出现 |
+| 1.5 语义向量路由 | route = utterance 样本集的 embedding 索引，请求向量最近邻匹配 + 阈值/margin 触发 | intent / scope / temporal 需要语义泛化但不需组合推理（同义表达、口语变体）；毫秒级、零 LLM call | 多意图组合、需解析指代或跨维度推理的请求 |
 | 2 结构化 LLM 路由 | LLM structured output（schema validated） | 语义 intent、复杂表达、组合意图、自然语言 scope | 确定性信号覆盖不足且语义复杂 |
 | 3 混合路由 | 硬规则 / metadata → LLM 理解 → validation → capability routing | 语义复杂场景的常见生产形态 | route 数量大（数十以上） |
 | 4 分层路由 | Domain → Capability → Specialist 两级路由 | route 数量大 | — |
@@ -110,6 +111,8 @@ request_understanding:
 - Level 4 仅 route 数量大时启用——十个 route 不建 router tree。
 - Level 5 禁止把 intent label 机械映射成独立 Agent（§9）。
 - 分级是 BUILD 的**选型输出**（routing_strategy.level + reason），不是运行时动态切换。
+
+**Router vs Cascade 与判定成本**（与 Level 分级正交的成本维度）：Router = 先判后跑（本表全部 Level）；Cascade = 先跑便宜的判定/模型，置信不足再升级贵的。路由判定本身也遵循 simplest sufficient——**判定器级联**：规则（0 成本）→ 向量匹配（毫秒级，Level 1.5）→ 小 LLM → 大 LLM，每请求只承担其复杂度对应的判定成本，不是所有请求都付 Level 2+ 的价格。`capability_plan` 可选扩展 `model_selection / reasoning_effort` 键（按 intent 与复杂度决定快模型 vs 推理模型，"when to reason"）：判定依据与收益度量走 testing.md §8 Routing Quality 与 §11 Quality Gain / Token。不变式：级联每一级都过同一 schema validation 与 fail-closed，**降级判定不放宽可见性、升级判定不授予权限**（§0）。
 
 ## 3. Intent Taxonomy 来自产品
 
@@ -138,6 +141,15 @@ Historical route:
 ```
 
 - intent → route_target 是到 capability / 数据源的映射，不是 intent → Agent 映射（§9）。
+
+**样本从哪来（数据闭环——taxonomy 质量取决于样本分布，不是定义写得多漂亮）**：
+
+- 冷启动：从 PRD / API / user journeys 写初版三类样本；boundary 优先覆盖"两个 intent 都说得通"的话术（那才是分界线所在）。
+- **样本即索引**：Level 1.5 下三类样本直接 embedding 化为路由索引——positive 建立吸引域，boundary / counterexample 用于校准触发阈值与 margin，文档与实现不再两张皮。
+- 线上挖掘：routing_trace（§10）中 `fallback_reason` 非空、route margin 低、被人工纠正过的请求，定量回流为 hard negatives（如每月审查一批）——线上真实误判是最好的新增样本。
+- paraphrase 扩增：每个 positive 生成 N 个语义等价变体（testing.md 场景 31 的构建侧对应物），防"只有关键词完全匹配才路由对"。
+- 偏好数据（启用 model_selection 时）：强弱模型对同一请求的对比结果，标注"该请求是否需要强模型"——RouteLLM 式训练/校准信号。
+- **评估集先行**：每 route 配 golden set（positive / boundary / counterexample 配比如 6:2:2，标注 intent / scope / temporal 真值）——没有 golden set 就没有"准不准"的度量，只剩体感（评估方法见 testing.md §8）。
 
 ## 4. 混合路由：确定性信号优先
 

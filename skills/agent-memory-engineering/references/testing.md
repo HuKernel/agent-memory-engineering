@@ -176,6 +176,13 @@ assert expected_scope_marker in out["history_digest"]
 
 **Routing Quality**（配合 request-understanding.md）：Routing Accuracy（intent / scope / temporal 在标注集上的正确率）/ Clarification Rate（向用户澄清的比例——应低，过度澄清 = 把路由失败转嫁给用户）/ Silent Mis-route Rate（未澄清却路由错误的比例，最危险）/ Router Overhead（每请求额外 LLM 调用数与延迟）/ Capability Precision（激活的能力中真正需要的比例）/ Capability Recall（完成任务所需能力中被正确激活的比例）/ Paraphrase Consistency（等价表达产生等价 routing semantics 的比例）/ Unnecessary Retrieval Rate（不需要 retrieval 却执行了 retrieval 的请求比例）/ Wrong Tool Activation Rate（Router 错误激活工具能力的比例）。routing_confidence 校准：自报分数与真实正确率的偏离度，澄清与降级阈值据此调整。阈值按项目 eval 校准，不设全局固定常数。
 
+**Router 评估方法（先于指标——没有评估集，上面全部是体感）**：
+
+- **golden set 构造**：每 route 按 positive / boundary / counterexample 配比（如 6:2:2）建集，逐条标注 intent / scope / temporal 真值；boundary 样本决定评估区分度——全是 positive 的评估集必然虚高。数据来源与迭代闭环见 request-understanding.md §3（线上误判回流、paraphrase 扩增）。
+- **校准曲线**：routing_confidence 分桶 × 实际正确率（reliability diagram）——自报分数与真实率的偏离决定澄清 / 降级阈值怎么定（§6 的"eval 校准"落到实处）。
+- **成本效率**：启用 model_selection / 判定器级联时，补 quality retention per cost（相对全量强判定的质量保留率 ÷ 成本降低比，RouteLLM 口径）与判定成本（router 自身 tokens / 延迟，计入 Router Overhead 而非只算下游）。
+- **语义缓存命中率**（可选）：等价请求命中缓存路由结果的比例——判一次、用多次，与 Paraphrase Consistency 互为印证。
+
 ## 9. Maintenance / Hygiene Eval（长期运行）
 
 - Generalization Quality：多次类似 Episode 是否沉淀为正确稳定的规则（配合 architecture §9.7 学习环）。
