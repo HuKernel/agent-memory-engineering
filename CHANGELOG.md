@@ -2,6 +2,20 @@
 
 本文件记录仓库打包形态与核心方法论的显著变更。格式参考 Keep a Changelog，版本遵循 SemVer。
 
+## [1.5.0] - 2026-10-21
+
+流程机制补强（借鉴 Agent Skill 交互式架构师模式），方法论内容不变。
+
+### Added
+
+- **Design Artifact Protocol**：BUILD 设计产出（Capability Scope Decision / 选层选型 / architecture_decisions / blueprint）统一持久化到项目内 `AGENT_MEMORY_DESIGN.md`（单一事实来源）；进入 BUILD 先检查该文件决定续作或新建；文档先于代码，IMPLEMENT 收尾对账；调试 PATCH / AUDIT 修复改变设计决策时同步更新
+- **BUILD 完成定义（Definition of Done）**：六项交付检查（落盘对账 / status+reason 完整性 / not_needed 决策覆盖 / evaluation_plan 完整性 / 铁律复核 / Blueprint 完整性）
+- **references 导航**：三个 reference 的 § 地图 + 不确定位置时的关键词 Grep 查找方式 + 冲突裁决（SKILL.md 管路由与约束，细节以 references 为准）
+
+### Changed
+
+- README 核心方法论清单补 Design Artifact Protocol
+
 ## [1.4.0] - 2026-09-16
 
 Final Freeze Consistency Patch（v2 freeze）——修复四文件间生命周期 / 能力模型 / Debug / 测试一致性，不新增架构 Pattern。

@@ -40,6 +40,8 @@ description: >
 | 系统有症状（串会话/记错/污染，或 意图识别错误/路由错误/工具选错/能力误激活/错误跨会话历史检索） | 走「调试工作流」定位 Root Cause（CASE R / A–F），再查对应 reference：routing → `request-understanding.md`；memory/context → `architecture.md`；测试 → `testing.md` |
 | 要写测试 / 验收 / 评估指标 | 读 `references/testing.md`，按项目能力选场景 |
 
+**references 导航**：`architecture.md` = Memory/Context 模式库（§0 Hard Invariant / §1 七层与 Core-Raw / §2 Representation / §3 Writer / §4 检索 / §5 Forget 与摘要 / §6 Context / §9 taxonomy 与 Advanced / §10 特定领域）；`request-understanding.md` = 请求理解与路由模式库（§1 request model / §2 Level 0–5 / §3 taxonomy / §4–§5 混合路由与 fail-closed / §8 收编表 / §10 trace）；`testing.md` = 评估矩阵（31 场景、三层体系、能力→场景映射）。已知主题按 § 直读；不确定位置按关键词 Grep（`tombstone` / `scope_intent` / `fail closed` / `supersede` / `capability_plan`）；本文是路由与约束，细节与 references 冲突时以 references 为准。
+
 ## 铁律（冲突时按此序裁决）
 
 1. 正确性 > 防记忆污染 > 上下文相关性 > 可维护性 > 性能 > Token 成本。
@@ -57,6 +59,8 @@ description: >
 ## BUILD 工作流：DISCOVER → MODEL → DESIGN → MAP → IMPLEMENT → EVALUATE
 
 为从零设计、重建或接入 **Agent Runtime Information Architecture**（Request Understanding / Memory / Context）的项目服务，按用户实际需求选择需要的能力，**不要求三个模块同时重建**：Intent-only task 不强制重建 Memory；Memory-only task 只做必要最小 Request Understanding 设计；Context-only task 不强制新增长期 Memory；Integrated Agent Runtime task 三者联合设计。`references/architecture.md` 是 Memory/Context 的**模式库不是模板**，`references/request-understanding.md` 是请求理解与路由的模式库——每一步都在做“选择 + 说理由”，不是照抄全套；DESIGN 阶段必须完成 **Layer / Memory Type / Representation / Advanced Pattern / Context Strategy（含 Context Stability）/ Routing Strategy** 选择，流程不另加阶段。全程约束：铁律 1–9、YAGNI、复用现有栈、minimal change、可测试；最高取舍序 **Correctness → Relevance → Adaptivity → Maintainability → Efficiency**，复杂度只在有理由时引入。
+
+**Design Artifact Protocol（设计持久化）**：BUILD 的设计产出不留在对话里——Capability Scope Decision、`selected_layers` / `memory_types` / `advanced_patterns` / `architecture_decisions`、`information_mapping`、`routing_strategy` 与最终 blueprint 统一落入项目内 **`AGENT_MEMORY_DESIGN.md`**（单一事实来源：决策 + reason + 变更记录）。每次进入 BUILD 先检查该文件再进 Capability Scope Decision：**存在 → 先读取，按既有决策续作或增量修订，不重跑全流程、不无故推翻既有决策；不存在 → 随 DESIGN 首批产出新建**。文档先于代码：影响架构的修改先更新该文件再进 IMPLEMENT，IMPLEMENT 收尾对账一次，消除文档-实现漂移；调试工作流 PATCH / AUDIT 后的修复若改变设计决策，同步更新对应条目。
 
 **Capability Scope Decision**（BUILD 第一个动作——任务范围判断，不是 runtime schema、不是 DB 结构、不是新 Pattern；防止 Intent-only 被强推整套 Memory、Context-only 被强推长期 Memory）：
 
@@ -358,6 +362,15 @@ evaluation_plan:
       reason: "无 RAG，仅保留工具结果断言"
   quality_metrics: []          # 选用的 §8–§11 指标 + 项目校准阈值
 ```
+
+**完成定义（Definition of Done）**——六项全过才算交付，缺一项回到对应阶段：
+
+1. `AGENT_MEMORY_DESIGN.md` 已落盘，且与最终实现一致（IMPLEMENT 后对账过）；
+2. Capability Scope Decision 与 DESIGN 五类产出（layers / memory_types / representation / advanced_patterns / routing_strategy）逐项 status + reason，无裸 status；
+3. `architecture_decisions` 覆盖全部 not_needed 的高级模式与偏离模式库之处；
+4. `evaluation_plan` 完整：`skipped_tests` 逐项带 reason，`required_tests` 全绿或明确记录未跑原因；
+5. 铁律 1–9 逐条复核通过（启用对应能力的 §0 Hard Invariant 尤甚）；
+6. 无代码项目：Implementation-ready Blueprint 完整，工程师可直接开工。
 
 ### 7. 运行期 —— OBSERVE / MAINTAIN（IMPLEMENT 之后）
 
