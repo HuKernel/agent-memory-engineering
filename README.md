@@ -104,24 +104,25 @@ npx skills add HuKernel/agent-memory-engineering --list
 ## Repository structure
 
 ```text
-skills/
-└── agent-memory-engineering/     ← 自包含、可单独安装的 Agent Skill
-    ├── SKILL.md                  ← 铁律 / 路由表 / 工作流骨架（activation 后全量加载）
-    ├── evals/
-    │   └── evals.md              ← 触发正负样本 + 工作流 golden trace（维护者自查）
-    └── references/
-        ├── workflows.md          ← 四工作流执行细则（BUILD / MIGRATION / AUDIT / DEBUG）
-        ├── templates.md          ← 产出模板库（Capability Scope / DESIGN 五类 / blueprint…）
-        ├── architecture.md       ← memory/context pattern library + 统一 Runtime Pipeline
+skills/                            ← skills CLI 的 skill 容器目录
+├── SKILL.md                      ← 铁律 / 路由表 / 工作流骨架（activation 后全量加载）
+├── evals/
+│   └── evals.md                  ← 触发正负样本 + 工作流 golden trace（维护者自查）
+└── references/
+    ├── workflows.md              ← 四工作流执行细则（BUILD / MIGRATION / AUDIT / DEBUG）
+    ├── templates.md              ← 产出模板库（Capability Scope / DESIGN 五类 / blueprint…）
+    ├── architecture.md           ← memory/context pattern library + 统一 Runtime Pipeline
                                     （Hard Invariant / 七层 / Writer / 检索 / Context Stability…）
-        ├── request-understanding.md ← request understanding & routing pattern library
+    ├── request-understanding.md  ← request understanding & routing pattern library
                                     （Request Model / Level 0–5 / taxonomy / fail-closed / 收编表）
-        └── testing.md            ← evaluation matrix（31 场景 + 质量指标 + 公开基准校准映射）
+    └── testing.md                ← evaluation matrix（31 场景 + 质量指标 + 公开基准校准映射）
 ```
+
+**为什么是 `skills/` 而不是 `skills/<name>/`**：本仓库只发布**一个** skill，容器目录名对 CLI 没有意义——skill 名称取自 SKILL.md frontmatter 的 `name` 字段（不是目录名），安装时 CLI 也会按 `name` 自动重建目标目录（实测：源在 `skills/`，装到 `.claude/skills/agent-memory-engineering/`）。去掉中间层少一次目录嵌套，也避免"目录名改了但 frontmatter 没改"的静默不一致。
 
 **渐进式披露**：`SKILL.md` 只放铁律、路由表与工作流骨架（保持精简，进入上下文不挤占用户工作区）；执行细则在 `references/workflows.md`，产出模板在 `references/templates.md`，模式库在 `architecture.md` / `request-understanding.md` / `testing.md`——按需读取，不预加载。
 
-`skills/agent-memory-engineering/` 是唯一内容源（One Skill, One Source of Truth）；安装到各 agent 的副本由 skills CLI 管理。更新本仓库后重跑 `npx skills add HuKernel/agent-memory-engineering` 即可同步。
+`skills/` 是唯一内容源（One Skill, One Source of Truth）；安装到各 agent 的副本由 skills CLI 管理。更新本仓库后重跑 `npx skills add HuKernel/agent-memory-engineering` 即可同步。
 
 ## Development
 
@@ -129,7 +130,7 @@ skills/
 npx skills add HuKernel/agent-memory-engineering --list   # 验证仓库可被发现
 ```
 
-修改只改 `skills/agent-memory-engineering/` 内的文件；SKILL.md 的 frontmatter 需保持 `name` + `description`（CLI 与各 agent 靠它发现和触发）。
+修改只改 `skills/` 内的文件；SKILL.md 的 frontmatter 需保持 `name` + `description`（CLI 与各 agent 靠它发现和触发）——`name` 必须与预期安装名一致，它是 skill 的唯一标识。
 
 ## Versioning
 

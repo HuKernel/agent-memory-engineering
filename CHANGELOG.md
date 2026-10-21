@@ -4,7 +4,11 @@
 
 ## [2.0.0] - 2026-10-21
 
-规范性整改 + 渐进式披露重构。**方法论语义不变**（Hard Invariant、31 场景、三支柱管线、路由分级均保持原样）——本版修的是载体合规性、文档一致性与未兑现承诺。
+规范性整改 + 渐进式披露重构 + 仓库结构扁平化。**方法论语义不变**（Hard Invariant、31 场景、三支柱管线、路由分级均保持原样）——本版修的是载体合规性、文档一致性与未兑现承诺。
+
+### Changed
+
+- **仓库结构扁平化**：`skills/agent-memory-engineering/` → `skills/`（去掉单 skill 仓库的多余目录层）。skill 名称取自 SKILL.md frontmatter 的 `name` 而非目录名，skills CLI 发现 `skills/` 容器下的 SKILL.md 且安装时按 `name` 重建目标目录（实测：源在 `skills/`，装到 `.claude/skills/agent-memory-engineering/`，references/ 与 evals/ 相对路径不变）——故此变更不影响安装与触发。README 补「为什么是 `skills/`」的说明
 
 ### Fixed
 
