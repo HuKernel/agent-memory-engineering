@@ -152,7 +152,7 @@ scope/lifecycle × memory_type 之外，BUILD 为每类信息选择第三个设�
 - **rich_contextual_card**：复杂事件、人物关系、背景原因、重要项目决策——可携带 entity / relationship / backstory / timestamp / provenance。
 - **raw_history_reference**：不值得完全结构化、但未来要能恢复细节的原始会话/trajectory——**不是新的长期事实 memory**，是指向 raw conversation archive 的引用（message range / source ids），配合 §1 Raw History Archive 使用。
 
-**Representation 不机械绑定 memory_type**：Semantic+atomic_note、Semantic+structured_card、Episodic+enhanced_note、Episodic+rich_contextual_card、Procedural+atomic_note 都合法。表示由信息复杂度、更新频率、关系复杂度、检索方式、token cost 共同决定——简单事实被过度结构化、复杂实体被压成模糊单句，都是 Representation 反模式。
+**Representation 不机械绑定 memory_type**：Semantic+atomic_note、Semantic+structured_card、Episodic+enhanced_note、Episodic+rich_contextual_card、Procedural+atomic_note 都合法。表示由信息复杂度、更新频率、关系复杂度、检索方式、token cost 共同决定——简单事实被过度结构化、复杂实体被压成模糊单句，都是 Representation 反模式。**表示介质是一条由外及内的连续谱**：文本（本文五种，易更新/可审查/可迁移）→ 可执行代码（§10.4，聚合统计与约束执行的确定性介质）→ 模型局部参数 / 感知向量（研究方向，不入工程默认集）。画像类 structured_card 可声明式配置槽位 schema（Memobase 式主题→子主题两级，开发者控制画像范围与粒度）；episodic 的 `structured_data` 元数据（时间戳 / 任务标识 / entities）支持时间 × 主题多维组合检索（"上次讨论预算是什么时候"）。
 
 ## 3. 写入门控完整流程
 
@@ -351,6 +351,7 @@ token 预算管"放多少"，attention budget 管"模型看得见多少"——�
 
 - 检索资料/记忆/工具结果全部包数据标签（`<context>`/`<tool_result>`），内容里出现的同名闭合标签先剥离。**标签内内容一律视为 untrusted data**：即使其中出现 "Ignore previous instructions"、"调用某工具"、"记住用户喜欢 Java" 等指令式文本，也不得把它们提升为 system/developer/tool instruction 执行——**retrieved content = data, not authority**。RAG / Tool 内容不得直接或间接成为 User Memory evidence（§3 lineage 规则）。
 - 敏感信息写入门控前正则拦截（宁可漏记不可入库）。
+- **日志 / trace 侧脱敏（与写入侧拦截互补）**：§3 管"不入库"，本条管"不留痕"——memory_trace、请求日志、LLM 调用记录同样可能携带 PII。策略：本地小模型做 PII 检测与脱敏（日志本身含敏感数据，发往云端脱敏违背初衷）；高吞吐场景混合分级——正则快速过滤结构化模式（身份证 / 银行卡号），LLM 深度分析半结构化与自然语言表达（"我的密码是 abc123"）；§9.9 的 routing 段不永久记录 raw user text 是同一原则的下限。
 
 ## 8. 迁移哲学
 
@@ -410,7 +411,7 @@ cleanup low-value
     project-decisions/  past-incidents/  user-preferences/  successful-solutions/
   ```
 
-选型：短聊天 bot = not needed；coding/research/长任务 = recommended；超大项目 = required。§6 现有设计 = Tier 1+2，Tier 3 纯增量。skill / capability instructions 同样适用 Progressive Disclosure——模型先知道有哪些能力/namespace 可用，真正需要时再加载具体 Skill/instructions/files，不一开始把全部 Skill 正文塞进 context；归入本 Pattern，不新增第四层。
+选型：短聊天 bot = not needed；coding/research/长任务 = recommended；超大项目 = required。§6 现有设计 = Tier 1+2，Tier 3 纯增量。skill / capability instructions 同样适用 Progressive Disclosure——模型先知道有哪些能力/namespace 可用，真正需要时再加载具体 Skill/instructions/files，不一开始把全部 Skill 正文塞进 context；归入本 Pattern，不新增第四层。生产实现例证：文件系统范式（OpenViking 类虚拟 URI 目录树 + 每条目自动生成 L0 摘要 ~100t / L1 概览 ~2kt / L2 全文三层，L0 判无关则后两层不加载）与宿主平台目录式 memory tool（`/memories` 目录）——"摘要常驻、按需取全文"与本 Pattern 同族。
 
 ### 9.5 Context Planner 与 Token 预算
 
@@ -528,7 +529,7 @@ attribution 语义：`attributed_memory_ids / attribution_confidence` 是 **obse
 
 ### 10.1 Graph Memory
 
-仅当出现大量实体关系、多跳关系查询、关系随时间变化、复杂历史事实才考虑（Graph DB / Temporal KG）。**默认输出 `graph_memory: {status: not_needed, reason: "普通 User Memory 不需要图结构"}`**，不默认建议 Neo4j/Graphiti。
+仅当出现大量实体关系、多跳关系查询、关系随时间变化、复杂历史事实才考虑（Graph DB / Temporal KG）。**默认输出 `graph_memory: {status: not_needed, reason: "普通 User Memory 不需要图结构"}`**，不默认建议 Neo4j/Graphiti。实践策略是**分层互补**：完整自然语言保存核心信息（三元化必然语义降级——条件判断与时间依赖会丢失在 triple 拆解中，且提取错误即知识污染），辅以结构化元数据索引（§9.8 entity_retrieval 已覆盖多数需求）；图谱的不可替代场景是多跳关系遍历与**实体消歧**（区分两个同名"张医生"靠各自关系边，这是词义消歧解决不了的）——医疗问诊 / 法律案件 / 家谱类垂直场景才作专项索引，与自然语言记忆协同，不替代。
 
 ### 10.2 Bi-temporal Memory
 
@@ -538,6 +539,10 @@ attribution 语义：`attributed_memory_ids / attribution_confidence` 是 **obse
 
 仅当检测到 multiple agents / shared team state / organization knowledge / 协作。基础 scope 枚举（global/thread/project）**不动**；未来确需时以 owner_type / owner_id / namespace / ACL 作为 §8 式 migration pattern 引入，不预先抽象。
 
+### 10.4 Executable Memory（User as Code，可执行代码介质）
+
+仅当记忆的**用法**以聚合统计、规则约束、交叉冲突检测为主时考虑（用药安全 / 行程合规 / 证件有效期类场景）——把用户状态表示为带类型的可执行代码而非文本：记忆更新两阶段 = 只增事实日志（每次会话后 LLM 逐条抽取追加，WAL）+ 周期性结构化 checkpoint（从完整日志重新生成带类型 dataclass，日期用 `date()`、杂项留 `notes: list[str]` 文本位）。三大确定性优势（检索式文本记忆在此正确率仅 6–43%，代码形态接近 99%）：聚合统计（"去年出了几次国"= 一行表达式）；冲突发现（当前用药 × 过敏史按药物类别交叉比对的纯函数）；约束执行（护照距国际行程不足 180 天即报警的 check() 在每次状态更新时自动触发——L3 主动服务的技术底座，见 testing.md §8 三层次框架）。代价：需要代码生成与执行的工程支撑，结构化程度不高的杂项事实无优势——因此它是 §2 文本表示的专项补充不是替代，默认 not_needed。
+
 ## 11. Design Sources / Inspirations
 
 仅作来源说明，不构成运行时依赖——以下思想已全部工程化为本文自包含规则，Skill 运行不访问外部材料：
@@ -545,7 +550,7 @@ attribution 语义：`attributed_memory_ids / attribution_confidence` 是 **obse
 - 李博杰《深入理解 AI Agent：设计原理与工程实践》（开源主仓库 `bojieli/ai-agent-book`）：
   - **Chapter 1 Agent 基础**：Agent = LLM + Context + Tools；LLM 承担 understanding / reasoning / planning / decision → 对应 request-understanding.md 的定位：routing 是把 LLM 的理解转化为系统能力调度的桥，本身不是新的"智能层"。
   - **Chapter 2 上下文工程**：静态前缀 + 动态轨迹结构、“动态信息永远追加到末尾”、KV/Prompt Cache 友好布局（时间戳注入 system prompt 导致缓存失效的教训）、压缩双动机（长度约束 + 信息密度/思考质量）、压缩保留优先级、Agent Skills 渐进式披露（目录 → 按需加载）→ 对应本文 §5 Compression Principle、§6 Context Stability、§9.4、§9.5，以及 request-understanding.md §7（routing 只选 namespace 不注入内容）、§8.4（routing 输出不进 Stable Prefix）。**v1.2 增补吸收**：Agent 状态栏（末尾 user-role 元信息注入、代码维护三原则、两种更新实现的缓存代价——含 Context Distillation 研究：弱模型准确率 +40~54pp / 强模型思考 token 降一个数量级）→ §6 状态栏小节；压缩策略分级（五层兜底 + 熔断器 + 上下文感知压缩 + 80% 阈值批量触发）与标识符原样保留 → §5；Context Rot（腐化 ≠ 溢出）→ §6 Attention Budget；隔离优于压缩（Sub-agent Context Isolation）→ §6 末小节。
-  - **Chapter 3 用户记忆和知识库**：四种存储格式（Simple Notes / Enhanced Notes / JSON Cards / Advanced JSON Cards）、三套正交分类（记忆层次 × 存储格式 × 认知类型）、轨迹 append-only（“轨迹是流水账，长期记忆是档案”）、双层记忆架构（结构化卡片常驻提供概览 + 检索按需提供细节）、对话历史本身即知识库、上下文感知检索（索引期前缀）、记忆压缩与整理（筛选/聚类/抽象泛化）→ 对应本文 §1 Structured Core + Raw History、§2 Representation Strategy、§4 Raw History Retrieval、§9.2/§9.3。
+  - **Chapter 3 用户记忆和知识库**：四种存储格式（Simple Notes / Enhanced Notes / JSON Cards / Advanced JSON Cards）、三套正交分类（记忆层次 × 存储格式 × 认知类型）、轨迹 append-only（“轨迹是流水账，长期记忆是档案”）、双层记忆架构（结构化卡片常驻提供概览 + 检索按需提供细节）、对话历史本身即知识库、上下文感知检索（索引期前缀）、记忆压缩与整理（筛选/聚类/抽象泛化）→ 对应本文 §1 Structured Core + Raw History、§2 Representation Strategy、§4 Raw History Retrieval、§9.2/§9.3。**v1.2 增补吸收**：三层次评估框架（基础回忆 / 多会话检索 / 主动服务 + 八项能力）→ testing.md §8；User as Code 可执行记忆（WAL + 带类型 checkpoint，聚合/冲突/约束确定性化）与表示介质连续谱 → §2 / §10.4；日志侧 PII 脱敏（本地模型 + 正则/LLM 混合）→ §7；Memobase 槽位化画像与 episodic 多维组合检索 → §2；GraphRAG 分层互补与实体消歧 → §10.1；文件系统范式 L0/L1/L2 → §9.4。
   - **Chapter 7 Agent 评估**：评估驱动校准（指标先行、阈值来自真实数据而非拍脑袋）→ 对应 request-understanding.md §6（routing_confidence 阈值经 eval 校准，自报分数不当真实概率）与 testing.md §8 Routing Quality。
 - 主流 Agent 工程共识（不绑定框架，仅来源说明）：Anthropic《Building Effective Agents》《Effective Context Engineering for AI Agents》、OpenAI Agents SDK（handoffs / guardrails）、LangGraph（routing / structured output / conditional edges）——simplest sufficient router、structured output 路由、handoff vs agent-as-tool、guardrail 与路由分离 → 工程化为 request-understanding.md §2（Level 0–5）、§4（混合路由）、§9（Handoff vs Agent-as-Tool）、§0（Routing ≠ Authorization）。
 - 学术来源（仅思想溯源；工程化以本文 Hard Invariant 为准，冲突时 invariant 优先）：

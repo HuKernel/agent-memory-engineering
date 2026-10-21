@@ -156,6 +156,14 @@ assert expected_scope_marker in out["history_digest"]
 
 ## 8. Quality Evaluation（Metric，阈值按项目校准）
 
+**能力成熟度三层次**（先定层，再看指标——纵向递进标尺，与下列横向维度指标互补；八项能力参照：个人信息保留 / 偏好追踪 / 上下文切换 / 记忆更新 / 多会话连续性 / 复杂思考 / 时间感知 / 冲突解决）：
+
+1. **L1 基础回忆**：准确存取用户直接给出的无歧义信息（“会员号 12345”精确返回）——记忆系统可靠性的下限，对应场景 1/5/6/7。
+2. **L2 多会话检索**：跨时间、跨对象的会话信息全量检索并正确推理——两辆车都找回并主动问服务哪辆（不是猜一辆）；取消复合事件（机票+酒店）时关联全部子预订；分辨有效合同与历史报价——对应场景 2/3/10/13，重点补强**多片段联合推理**（过敏 → 推荐泰国菜时主动提醒花生）与**时间感知**（相对时间、时间计算）。
+3. **L3 主动服务**：无明确指令时综合久远记忆提供预见性帮助——订国际航班时关联数月前护照并预警临期、报税季主动整合全年税务文件——现有场景矩阵未显式覆盖，是 End-task Delta（§10）之上的产品级目标；技术底座见 architecture §10.4 约束执行。
+
+评估方法：Agent 逐会话生成/更新记忆（**仅可访问记忆，不可回看原始会话**），答后由 LLM-as-a-judge 对照参考答案评分——这同时是 §12 公开基准（LoCoMo 长对话问答）的可比口径。
+
 **Write Quality**：Write Precision（写入中真值得长期保存的比例）/ Write Recall（应记的重要事实漏记率）/ Conflict Accuracy（REINFORCE/SUPERSEDE/IGNORE 判定正确率）/ Scope Accuracy（global/thread/project 分类正确率）。
 
 **Representation Fitness**（配合 architecture §2 Representation Strategy）：简单事实是否被过度结构化 / 复杂实体是否被压成模糊单句 / 需要局部更新的信息是否选了合适表示——audit checklist / quality metric，非全局硬阈值。

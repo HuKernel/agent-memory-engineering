@@ -2,6 +2,22 @@
 
 本文件记录仓库打包形态与核心方法论的显著变更。格式参考 Keep a Changelog，版本遵循 SemVer。
 
+## [1.8.0] - 2026-10-21
+
+吸收《深入理解 AI Agent》v1.2 Chapter 3 的未覆盖增量；Hard Invariant 不变。
+
+### Added
+
+- **能力成熟度三层次评估框架**（testing.md §8 开篇）：L1 基础回忆 / L2 多会话检索（多片段联合推理 + 时间感知，映射到既有场景）/ L3 主动服务（预见性帮助，产品级目标）；八项能力参照与 LLM-as-a-judge 评估口径（仅访问记忆不可回看原文），衔接 §12 公开基准
+- **Executable Memory / User as Code**（architecture.md 新增 §10.4）：可执行代码记忆介质——只增事实日志（WAL）+ 周期性带类型 checkpoint；聚合统计 / 交叉冲突发现 / 约束执行三大确定性优势（检索式文本 6–43% → 代码 ~99%）；适用判定与代价（需代码工程支撑，杂项事实无优势，文本表示的专项补充非替代）；§2 补表示介质由外及内连续谱（文本 → 代码 → 参数化前沿不入默认集）
+- **日志 / trace 侧 PII 脱敏**（architecture.md §7）：与写入侧拦截互补的"不留痕"层——本地小模型检测（脱敏数据不上云）+ 正则/LLM 混合分级（高吞吐正则先行）
+
+### Changed
+
+- architecture.md §10.1 Graph Memory 补分层互补策略（自然语言为主 + 结构化元数据为辅；实体消歧为图谱不可替代场景）与三元化语义降级风险
+- architecture.md §2 补 Memobase 式槽位化画像配置与 episodic 时间 × 主题多维组合检索；§9.4 补文件系统范式生产例证（OpenViking L0/L1/L2 三层按需加载、宿主目录式 memory tool）
+- architecture.md §11 Chapter 3 条目更新 v1.2 增补吸收清单
+
 ## [1.7.0] - 2026-10-21
 
 吸收《深入理解 AI Agent》v1.2 Chapter 2 的未覆盖增量；Hard Invariant 不变。
