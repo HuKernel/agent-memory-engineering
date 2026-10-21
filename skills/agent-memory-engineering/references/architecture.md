@@ -261,6 +261,9 @@ Structured Overview（core memory 命中导航线索）
 - 结构化运行态（active\_task/waiting\_for\_user/pending\_todo）与会话摘要同表不同字段，由路由层顺带更新（0 额外 LLM）。
 - Forget/删除记忆不回写摘要（段不可变），抑制在注入期完成（见下「Forget 抑制」）。
 - **Compression Principle**：压缩的目标不只是让 context 塞得下，还包括提高 information density。优先压缩 old trajectory、large tool results、重复历史、低价值 context；避免频繁重写 stable system prefix、tool definitions、trusted stable rules（见 §6 Context Stability）。SummarySegment 不可变、深度 ≤ 1 规则不变。
+- **压缩策略分级**（从低到高，逐层兜底）：① 工具结果预算控制——大体积输出存盘只留摘要预览，替换决策一次做出即冻结（保缓存）；② 噪声直接删除——只被用过几行的搜索结果直接移除，**对噪声做摘要是浪费 token**；③ API 层 context editing——服务端移除指定前缀内容，零本地成本但移除点后缓存失效，只在反正要重建时用；④ 归档式摘要——git log 式逐轮保留脉络（非 squash 合并），即本节 SummarySegment 管线；⑤ 全量压缩——LLM 驱动的最后手段，先压缩会话记忆再全量，并配**连续失败熔断器**（生产数据：大量会话会困在反复压缩失败的循环里持续烧钱）。
+- **触发与针对性**：压缩在两次 API 调用之间由框架预处理，不是每轮都压——按阈值触发（如窗口占用 80%）批量压缩，配合 `[COMPRESSED]` 类标记防重复处理；压缩提示纳入**当前 query 意图与已有信息**（上下文感知压缩），同等压缩率下保留关键事实显著优于盲压缩——多步骤任务不同阶段需要的信息密度不同。
+- **压缩保留优先级**（显式清单，LLM 会优先删"看似可重新获取"的内容，恰恰丢掉最不该丢的）：架构决策与关键约束不得摘要；已修改文件列表与关键变更完整保留；验证状态（pass/fail）必须保留；未解决 TODO 与回滚笔记必须保留；工具输出只留 pass/fail 结论。**标识符原样保留**——UUID / hash / IP / port / URL / 文件名，错一位后续工具调用即失效。
 - **Summary ≠ Memory**：Summary 是当前 thread 历史的压缩表示；Memory 是跨时间有长期价值的信息模型。引入压缩不改变这条边界——Background Writer 仍必须独立判断“是否值得长期保存”（§3 门控），不得把 Summary 自动当 User Memory 落库。
 
 ### Forget 抑制（tombstone，Ghost Summary 防护）
@@ -326,8 +329,23 @@ system(固定) + [风格偏好] + [长期记忆(每条截断，top_k/总预算�
 token 预算管"放多少"，attention budget 管"模型看得见多少"——注意力是稀缺资源，不随 token 数线性扩展：上下文越长，中段内容的有效召回越差（lost in the middle）。落地约束（与三段布局兼容，不新增段）：
 
 - **位置敏感放置**：关键约束 / 安全规则 / pinned 内容放 Stable Prefix 头部，最新证据与 query 天然在 Dynamic Tail 尾部；低优先级、可再检索的内容才放中段。
+- **Context Rot ≠ 溢出**：溢出是"装不下了"，腐化是"装得下但找不到了"——窗口远未满时检索精度已悄然下降，表面正常运行、决策质量持续劣化。最常见失效不是窗口不够长，而是信息密度不对：偶尔才用的知识每次加载、稳定规则与动态状态混放。识别信号：Agent 反复纠结早已解决的问题、突然找不到关键信息——此时该做的是压缩/隔离（§5/本节），不是换更长窗口的模型。
 - **工程表达**：attention 无法精确计量，落地手段就是"更少的无关 token"（Context Waste 指标，testing.md §8）+ 能力门控物理跳过——砍掉不需要的段，优先于压缩需要的段。
 - **平台 context editing 交互**：宿主提供自动 context editing（接近上限清老内容）时，被清内容属 Dynamic Tail 可接受；tombstone 注入期屏蔽（§5）与 SummarySegment 不可变（§5）语义不因平台清理放松，清理后补充注入的上下文仍须过本节组装规则与预算。
+
+### Agent 状态栏（Status Bar，末尾元信息注入通道）
+
+理论基础：**上下文学习更像检索而非推理**——上下文窗口是"只有一半的检索引擎"，注意力擅长在已有内容里查找，不擅长单次前向传播内归纳统计（数数、对账、进度跟踪）。让模型每次决策都从原始轨迹"现算"这类结论，代价随内容量增长且错误率高。正确做法是把**隐式状态提炼为显式知识**，注入上下文末尾：
+
+- **通道**：Harness 在消息列表末尾以 **user-role 消息**注入结构化元信息（如 `<agent_status>` 标签包裹）——不改开头 system（不破坏 KV Cache 前缀），且紧邻生成位置获得最高注意力权重（与 Attention Budget 的位置敏感放置一致）。此 user 角色只是 API 协议槽位，内容来自框架而非终端用户。Skill 元数据 / 能力清单走同一通道（§9.4 Tier 3），增量发送——每个条目只在首次出现时注入，稳态每轮增量为零。
+- **内容**（键值对形式，不要散文）：任务规划（TODO 及状态）、侧信道信息（事件时间戳——加在 user/tool 消息上而非 system）、环境当前状态（当前时间/工作目录/平台）、异常提醒（"该工具已被调用 N/M 次"）、可用能力清单。这些正是 §1 里"有独立 SoT、实时查询"的运行态——**状态栏是铁律 7 的注入形态**：可变状态经此通道按次注入，不写长期记忆。
+- **维护三原则**（Context Distillation 研究结论）：① **用代码维护，不用 LLM 批量统计**——几十行确定性代码可达标准答案级精度，让 LLM 一次性读完长历史吐统计反而多数出错（把"扫描整段上下文"的难题原封不动搬家）；确需 LLM 时逐条抽取、代码汇总。② **删原文前确认状态栏覆盖了会被问到的所有维度**——状态栏是有损投影，只预算了预想中的问题；覆盖不了就保留原文，否则"看似像样实则答非所问"的假权威会把模型带偏。③ **状态栏准确率当一线生产指标**——模型几乎无条件相信状态栏，写错会原样传进答案（错误约 10% 内收益尚存，超过可能比不带更糟）；信息必须来自对真实世界的可靠观测，不得来自可被污染的数据源（状态栏投毒，与 §7 反注入同族）。
+- **两种更新实现的缓存代价**：**每轮替换**（移除旧状态消息、末尾追加最新）——上下文只有一份最新状态，但替换点之后缓存失效，适合短轨迹或单条状态消息很大时；**持久追加**（状态消息永久留在轨迹，只追加新条目，Claude `<system-reminder>` 方式）——缓存完全友好，适合长轨迹高频更新，代价是陈旧状态累积、模型需认准最新一条。
+- 效果量级（供 eval 预期）：弱模型补准确率，强模型省效率（思考 token 可降一个数量级、思考量随上下文长度近似恒定而非线性涨）；读数必须配操作策略——光给 `elapsed/limit` 数字不改变行为，要连同"到顶即停/时间紧即交付"这类规则一起注入。
+
+### 隔离优于压缩：Sub-agent Context Isolation
+
+压缩是信息已进上下文之后的有损减法（额外 LLM 调用 + 替换点后缓存失效）；**隔离让大体积中间信息根本不进主上下文**：把"读大量文件 / 大范围搜索 / 长工具链探索"委派给子 Agent，子 Agent 在自己的上下文里消化数万 token 的中间过程，只回传几百 token 的结论性摘要（"目标位于 src/payment/callbacks.py 的 handle_callback，另有两处调用点"）。主上下文只增加任务描述与结论两条消息，前缀缓存零影响。代价：子 Agent 看不到主上下文，**任务描述必须自包含、目标明确**。适用判定：中间信息在得到结论后即成噪声的高探索类任务；需要全量轨迹留痕的审计/回放场景不适用（走 §1 Raw History Archive）。Claude Code Task 工具、Deep Research 检索子 Agent 是这一模式的生产实现。
 
 ## 7. 反注入与安全
 
@@ -526,7 +544,7 @@ attribution 语义：`attributed_memory_ids / attribution_confidence` 是 **obse
 
 - 李博杰《深入理解 AI Agent：设计原理与工程实践》（开源主仓库 `bojieli/ai-agent-book`）：
   - **Chapter 1 Agent 基础**：Agent = LLM + Context + Tools；LLM 承担 understanding / reasoning / planning / decision → 对应 request-understanding.md 的定位：routing 是把 LLM 的理解转化为系统能力调度的桥，本身不是新的"智能层"。
-  - **Chapter 2 上下文工程**：静态前缀 + 动态轨迹结构、“动态信息永远追加到末尾”、KV/Prompt Cache 友好布局（时间戳注入 system prompt 导致缓存失效的教训）、压缩双动机（长度约束 + 信息密度/思考质量）、压缩保留优先级、Agent Skills 渐进式披露（目录 → 按需加载）→ 对应本文 §5 Compression Principle、§6 Context Stability、§9.4、§9.5，以及 request-understanding.md §7（routing 只选 namespace 不注入内容）、§8.4（routing 输出不进 Stable Prefix）。
+  - **Chapter 2 上下文工程**：静态前缀 + 动态轨迹结构、“动态信息永远追加到末尾”、KV/Prompt Cache 友好布局（时间戳注入 system prompt 导致缓存失效的教训）、压缩双动机（长度约束 + 信息密度/思考质量）、压缩保留优先级、Agent Skills 渐进式披露（目录 → 按需加载）→ 对应本文 §5 Compression Principle、§6 Context Stability、§9.4、§9.5，以及 request-understanding.md §7（routing 只选 namespace 不注入内容）、§8.4（routing 输出不进 Stable Prefix）。**v1.2 增补吸收**：Agent 状态栏（末尾 user-role 元信息注入、代码维护三原则、两种更新实现的缓存代价——含 Context Distillation 研究：弱模型准确率 +40~54pp / 强模型思考 token 降一个数量级）→ §6 状态栏小节；压缩策略分级（五层兜底 + 熔断器 + 上下文感知压缩 + 80% 阈值批量触发）与标识符原样保留 → §5；Context Rot（腐化 ≠ 溢出）→ §6 Attention Budget；隔离优于压缩（Sub-agent Context Isolation）→ §6 末小节。
   - **Chapter 3 用户记忆和知识库**：四种存储格式（Simple Notes / Enhanced Notes / JSON Cards / Advanced JSON Cards）、三套正交分类（记忆层次 × 存储格式 × 认知类型）、轨迹 append-only（“轨迹是流水账，长期记忆是档案”）、双层记忆架构（结构化卡片常驻提供概览 + 检索按需提供细节）、对话历史本身即知识库、上下文感知检索（索引期前缀）、记忆压缩与整理（筛选/聚类/抽象泛化）→ 对应本文 §1 Structured Core + Raw History、§2 Representation Strategy、§4 Raw History Retrieval、§9.2/§9.3。
   - **Chapter 7 Agent 评估**：评估驱动校准（指标先行、阈值来自真实数据而非拍脑袋）→ 对应 request-understanding.md §6（routing_confidence 阈值经 eval 校准，自报分数不当真实概率）与 testing.md §8 Routing Quality。
 - 主流 Agent 工程共识（不绑定框架，仅来源说明）：Anthropic《Building Effective Agents》《Effective Context Engineering for AI Agents》、OpenAI Agents SDK（handoffs / guardrails）、LangGraph（routing / structured output / conditional edges）——simplest sufficient router、structured output 路由、handoff vs agent-as-tool、guardrail 与路由分离 → 工程化为 request-understanding.md §2（Level 0–5）、§4（混合路由）、§9（Handoff vs Agent-as-Tool）、§0（Routing ≠ Authorization）。

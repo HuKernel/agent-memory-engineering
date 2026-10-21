@@ -164,7 +164,7 @@ assert expected_scope_marker in out["history_digest"]
 
 **Retrieval Quality**：Recall@K / Precision@K / MRR。核心问题只有一个：**真正需要的 Memory 有没有进入最终 Context**。
 
-**Context Quality**：Context Precision（注入内容对当前任务实际有用的占比）/ Context Recall（完成任务所需信息齐全度）/ Context Waste（无关 token 占比）/ Memory Adherence（模型拿到 Memory 后是否真的遵守——对 procedural 尤其关键）。
+**Context Quality**：Context Precision（注入内容对当前任务实际有用的占比）/ Context Recall（完成任务所需信息齐全度）/ Context Waste（无关 token 占比）/ Memory Adherence（模型拿到 Memory 后是否真的遵守——对 procedural 尤其关键）/ **Status Bar Accuracy**（启用状态栏时：元信息与真实状态的偏差——工具计数、TODO 状态、时间戳的正确率；模型几乎无条件相信状态栏，偏差超过约 10% 时带错状态栏可能比不带更糟，是启用状态栏项目的一线生产指标）。
 
 **Routing Quality**（配合 request-understanding.md）：Routing Accuracy（intent / scope / temporal 在标注集上的正确率）/ Clarification Rate（向用户澄清的比例——应低，过度澄清 = 把路由失败转嫁给用户）/ Silent Mis-route Rate（未澄清却路由错误的比例，最危险）/ Router Overhead（每请求额外 LLM 调用数与延迟）/ Capability Precision（激活的能力中真正需要的比例）/ Capability Recall（完成任务所需能力中被正确激活的比例）/ Paraphrase Consistency（等价表达产生等价 routing semantics 的比例）/ Unnecessary Retrieval Rate（不需要 retrieval 却执行了 retrieval 的请求比例）/ Wrong Tool Activation Rate（Router 错误激活工具能力的比例）。routing_confidence 校准：自报分数与真实正确率的偏离度，澄清与降级阈值据此调整。阈值按项目 eval 校准，不设全局固定常数。
 

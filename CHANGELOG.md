@@ -2,6 +2,22 @@
 
 本文件记录仓库打包形态与核心方法论的显著变更。格式参考 Keep a Changelog，版本遵循 SemVer。
 
+## [1.7.0] - 2026-10-21
+
+吸收《深入理解 AI Agent》v1.2 Chapter 2 的未覆盖增量；Hard Invariant 不变。
+
+### Added
+
+- **Agent 状态栏（Status Bar）**（architecture.md §6 新增小节）：末尾 user-role 元信息注入通道——"上下文学习像检索不像推理"（只有一半的检索引擎），隐式状态显式化；代码维护三原则（勿用 LLM 批量统计 / 删原文前确认覆盖所有问题维度 / 准确率当一线生产指标防投毒）；两种更新实现（每轮替换 vs 持久追加）的 KV Cache 代价取舍；键值对形式、增量发送；标注铁律 7 实时 SoT 的注入形态。量化锚点来自 Context Distillation 研究（弱模型 +40~54pp / 强模型思考 token 降一个数量级）
+- **隔离优于压缩：Sub-agent Context Isolation**（architecture.md §6 新增小节）：大体积探索类中间信息委派子 Agent 消化、只回传结论性摘要，主上下文与前缀缓存零污染；任务描述必须自包含；审计/回放场景不适用（走 Raw History Archive）
+- **压缩策略分级**（architecture.md §5 补强）：五层兜底（工具结果预算控制 → 噪声直接删除 → API 层 context editing → 归档式摘要 → 全量压缩 + 连续失败熔断器）；80% 阈值批量触发 + `[COMPRESSED]` 防重复；上下文感知压缩（query 意图进压缩提示）；显式压缩保留优先级清单（架构决策/验证状态/未决 TODO 不摘要；标识符原样保留）
+- **Context Rot**（architecture.md §6 Attention Budget 补）：腐化（装得下但找不到）≠ 溢出（装不下）；识别信号与处置（压缩/隔离而非换长窗口模型）
+
+### Changed
+
+- testing.md §8 Context Quality 新增 **Status Bar Accuracy** 指标（状态栏元信息与真实状态偏差，>10% 可能比不带更糟）
+- SKILL.md 核心模式速查「上下文组装」补状态栏 / 子代理隔离 / 五层压缩要点；architecture.md §11 Chapter 2 条目更新 v1.2 增补吸收清单
+
 ## [1.6.0] - 2026-10-21
 
 对照学界基准与业界实践（LongMemEval / LoCoMo / Anthropic memory tool / 认知架构）的外围补强；Hard Invariant 与核心方法论不变。
