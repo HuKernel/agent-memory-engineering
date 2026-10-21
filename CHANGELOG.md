@@ -2,6 +2,42 @@
 
 本文件记录仓库打包形态与核心方法论的显著变更。格式参考 Keep a Changelog，版本遵循 SemVer。
 
+## [2.0.0] - 2026-10-21
+
+规范性整改 + 渐进式披露重构。**方法论语义不变**（Hard Invariant、31 场景、三支柱管线、路由分级均保持原样）——本版修的是载体合规性、文档一致性与未兑现承诺。
+
+### Fixed
+
+- **`description` 超过 Agent Skills 规范 1024 字符硬上限**（原 1172 字符）——超限可能导致 skill 在 Claude Code / Codex 中不被加载或触发失败。压缩至 676 字符，保留能力动词 + 中英触发词 + 症状式描述（"agent 记错了" / "跨会话泄漏"）
+- **铁律 ↔ Hard Invariant 编号语义错位**：SKILL.md 铁律 1–9 与 arch §0.1–§0.10 是两套独立编号，铁律 6（证据优先级）实际对应 arch §0.2 而非 §0.6，跨文档"铁律 N"引用会查错。现于 SKILL.md 铁律条目内标注对应 arch §0 编号，arch §0 每条反向标注「= 铁律 N」，并在两处各加一段**编号约定说明**（两份清单正交、不是父子关系）
+- **`request model` 顶层键名三义混用**：`request_mapping` / `request_understanding` / `request_model` 在 SKILL.md 与 ru §1 之间不一致。现将 ru §1 的 `request_understanding` 定为 canonical 顶层键，并显式禁止其余两种写法
+- **`capability_plan` 键集缺 canonical 标注**：ru §7 注释允许按 memory_type 细分但未给替换规则，`user_memory` 与 `semantic_memory` 并存会产生权威歧义。现标注 8 键为 canonical 最小集，细分键**替换**原键不并存，并列出 `model_selection` / `reasoning_effort` 为可选扩展
+- **跨文档裸 `§N` 引用**（如 SKILL.md 内写 `§9.6` 实指 architecture.md）易被误读为本文章节——现全文统一使用 `arch` / `ru` / `test` / `tpl` / `wf` 缩写前缀，SKILL.md 顶部加「文件缩写」说明并明示"跨文档引用必须带文件名"
+
+### Added
+
+- **MIGRATION 工作流**——兑现 description 与 README 长期宣称的"全生命周期含迁移"承诺。此前"迁移"只存在于 arch §8 的 4 行 Phase 1/2/3 描述，**无任何触发路径**。新工作流补齐 INSPECT → 对齐目标 → 幂等迁移 → VERIFY 四阶段，并把"旧行 NULL 不得自动解释为 global、证明不了 fail closed"提为硬约束
+- **`references/workflows.md`**——四工作流的执行细则（DISCOVER/MODEL/DESIGN/MAP/IMPLEMENT/EVALUATE、MIGRATION、AUDIT 11 项检查、DEBUG 各阶段禁令），按需加载
+- **`references/templates.md`**——产出模板库（Capability Scope Decision / DESIGN 五类 / information_mapping / architecture_decisions / memory_system_blueprint / evaluation_plan / DIAGNOSE / AUDIT 报告 / AGENT_MEMORY_DESIGN.md 骨架）
+- `evals/evals.md` 补 P8（MIGRATION 触发正样本）与 MIGRATION golden trace，并新增 §5 结构校验清单（description ≤1024、SKILL.md 体量、裸 § 引用、孤儿文件检查）
+
+### Changed
+
+- **SKILL.md 瘦身至 ~6.3k token / 150 行**（原 ~12k token / 499 行，超出规范建议值 <5000 token 的 2.4 倍）。做法是标准 progressive disclosure：原「核心模式速查」整段是 references 的镜像（且与 SKILL.md 自己"细节以 references 为准"的规矩冲突），替换为**症状定位索引表**（12 条症状 → 目标章节）；大段 YAML 模板移入 `references/templates.md`；工作流详细步骤移入 `references/workflows.md`
+- 术语约定段落由 600 字符密排改为表格，检索性提升
+- `SKILL.md` 新增「文件缩写」约定与「铁律 ↔ Hard Invariant 编号约定」两段说明，消除编号歧义
+- `references/architecture.md` 顶部新增「按需读取」导航表（任务类型 → 应读章节），替代拆文件方案
+- README 仓库结构图补 `workflows.md` / `templates.md`，并说明渐进式披露分工；能力表补 MIGRATION 行
+- SKILL.md 四个工作流标题统一为 `###` 同级（`BUILD` / `MIGRATION` / `AUDIT` / `DEBUG`），总览表保留阶段与硬约束摘要
+
+### Unchanged
+
+Hard Invariant（arch §0 十条）、七层模型、memory_type taxonomy、Writer 双 candidate source + lineage、Forget/tombstone、Normal/Historical 双路由、Procedural Authority Boundary、Structured Core + Raw History、Context Stability 三段布局、Level 0–5 路由分级、31 个测试场景与三层测试体系——**语义与编号均未改动**。
+
+### 评估后未采纳
+
+- **拆分 `references/architecture.md`**（22k token）——评估后不采纳。Core（§0–§7）与 Advanced/Optional/Sources（§8–§11）的外部引用频次几乎持平（19 : 17），说明多数任务跨两侧命中，拆文件的净收益为负；且需改动 44 处跨章节引用，引入漂移风险。改为在文件顶部加「按需读取」导航表，同等收益、零漂移。
+
 ## [1.9.0] - 2026-10-21
 
 对照 2024–2025 路由研究与工业实践（RouteLLM / Aurelio & vLLM Semantic Router / FrugalGPT / Query Routing for RAG）补强 Request Understanding 支柱的实现层与工程闭环；Hard Invariant 不变。

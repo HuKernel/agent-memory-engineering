@@ -2,7 +2,21 @@
 
 生产验证过的完整设计。定位：**Pattern Library / 设计参考**，不是必须照抄的固定架构——BUILD Workflow 按产品需求选择需要的层与机制，不默认全部启用；偏离本文模式必须说明理由。原则：**用现有字段组合表达分层，不为架构图好看建新表**。
 
-模式分组：**Core（§0–§8）** 所有启用长期记忆的项目默认适用（§1 Structured Core vs Raw History 是 Core Design Question、§2 Representation Strategy、§6 Context Stability 为设计决策维度，答案可为 required/optional/not_needed；§4 Raw History Retrieval 是按项目启用的 capability）；**Taxonomy（§9.1）** memory_type 正交分类模型（semantic/episodic/procedural），不属于“默认关闭的 Advanced Pattern”；**Advanced（§9.2–§9.9）** 默认关闭，BUILD 逐项输出 required / recommended / optional / not_needed + reason——唯一例外 §9.6：procedural memory 启用时自动强制（mandatory guardrail），不参与选配；**Optional（§10）** 特定领域才考虑；**Sources（§11）** 仅来源说明。禁止把 Advanced/Optional 当默认开启。
+模式分组：**Core（§0–§8）** 所有启用长期记忆的项目默认适用（§1 Structured Core vs Raw History 是 Core Design Question、§2 Representation Strategy、§6 Context Stability 为设计决策维度，答案可为 required/optional/not_needed；§4 Raw History Retrieval 是按项目启用的 capability）；**Taxonomy（§9.1）** memory_type 正交分类模型（semantic/episodic/procedural），不属于"默认关闭的 Advanced Pattern"；**Advanced（§9.2–§9.9）** 默认关闭，BUILD 逐项输出 required / recommended / optional / not_needed + reason——唯一例外 §9.6：procedural memory 启用时自动强制（mandatory guardrail），不参与选配；**Optional（§10）** 特定领域才考虑；**Sources（§11）** 仅来源说明。禁止把 Advanced/Optional 当默认开启。
+
+**按需读取**：本文较长（约 22k token），**只读当前任务相关的章节**，不必通读。
+
+| 任务 | 读哪几节 |
+|---|---|
+| 选层 / 存哪 / 什么表示 | §1、§2、§9.1 |
+| 写入逻辑 / 冲突 / 查重 | §3 |
+| 检索 / 可见性 / 双路由 | §4 |
+| 摘要 / 压缩 / Forget | §5 |
+| 上下文组装 / 预算 / 缓存布局 | §6、§9.5 |
+| 高级模式选型 | §9.2–§9.9 |
+| 领域专项（图谱 / 双时态 / 多 Agent / 可执行记忆） | §10 |
+| 存量系统改造 | §8 |
+| 硬约束核对 | §0 |
 
 ## Runtime Information Architecture（统一运行时管线）
 
@@ -47,16 +61,18 @@ Evaluate（testing.md）
 
 **Hard Invariant**（与参数无关；启用对应基础能力后必须满足，测试必须覆盖——测试分层见 testing.md：Universal Hard Invariant / Capability Hard Tests / Quality Metrics）：
 
+> **编号约定**：本节 10 条是**技术细则**（实现时逐条判定）；SKILL.md「铁律」节的 1–9 条是**裁决序**（做取舍时先看那条）。两份清单编号独立、**不是父子关系**——括号内的「= 铁律 N」标出直接对应项。铁律 1/2/3/5（优先级序、Memory≠聊天记录、先复现再改码、无消费方不建 Schema）在本节没有对应条目；本节 §0.1/§0.3/§0.6 也没有对应的铁律。**按 §0.N 查铁律编号会查错。**
+
 1. thread 隔离：scope=thread 的记忆只在本 thread 可见；跨会话内容只能经显式历史路由进入。
-2. 证据优先级：explicit > inferred_strong > inferred_weak，推断永不覆盖明确陈述。
+2. 证据优先级：explicit > inferred_strong > inferred_weak，推断永不覆盖明确陈述。（= 铁律 6）
 3. superseded/forgotten 默认不可召回：status='active' 且 valid_to 未过期（valid_to IS NULL = 未过期，即永久有效）双条件过滤；唯显式历史路由可读 superseded（见 §4）。
-4. scope/有效性硬过滤在语义排序之前；scope 错误不得用相似度阈值、reranker 或 prompt 补救。
-5. 敏感信息写入门控一票否决；LLM 判定失败默认不写。
+4. scope/有效性硬过滤在语义排序之前；scope 错误不得用相似度阈值、reranker 或 prompt 补救。（= 铁律 4）
+5. 敏感信息写入门控一票否决；LLM 判定失败默认不写。（= 铁律 6）
 6. SummarySegment 不可变；摘要深度 ≤ 1，禁止摘要套摘要。
-7. 可变状态不写长期记忆；**untrusted external context（工具结果/检索片段/RAG 内容）永不直接成为持久 memory**——对 interactive 与 derived 两类 candidate source 都成立（§3）。约束的是外部内容不得直接持久化，不是"每条候选必须直接来自对话消息"。
-8. 被 Forget 的事实不得回流最终 prompt——记忆/摘要/digest/缓存任何路径都不行；靠 tombstone 注入期屏蔽（见 §5），不靠"以记忆段为准"的仲裁声明。
-9. **Router 只选择候选、不授予权限**：routing 结果（capability_plan.tools=true、scope_intent=project 等）不构成 tool authorization、不扩大 Memory visibility——权限由 system policy / tool permission / application ACL / user authorization / guardrail 决定，可见性仍由 §4 visible() 硬过滤执行（Routing suggests. Authorization decides. Visibility enforces.，模式见 request-understanding.md §0）。
-10. **Intent 歧义 fail closed**：scope/temporal 无法确定时默认解析到 current / 更窄 scope，绝不用扩大信息可见范围来消除歧义（与第 4 条 scope 硬过滤、project fail closed 同族）；仅 material ambiguity（显著影响权限/scope/副作用/工具操作/结果正确性）才向用户澄清。
+7. 可变状态不写长期记忆；**untrusted external context（工具结果/检索片段/RAG 内容）永不直接成为持久 memory**——对 interactive 与 derived 两类 candidate source 都成立（§3）。约束的是外部内容不得直接持久化，不是"每条候选必须直接来自对话消息"。（= 铁律 7）
+8. 被 Forget 的事实不得回流最终 prompt——记忆/摘要/digest/缓存任何路径都不行；靠 tombstone 注入期屏蔽（见 §5），不靠"以记忆段为准"的仲裁声明。（= 铁律 8）
+9. **Router 只选择候选、不授予权限**：routing 结果（capability_plan.tools=true、scope_intent=project 等）不构成 tool authorization、不扩大 Memory visibility——权限由 system policy / tool permission / application ACL / user authorization / guardrail 决定，可见性仍由 §4 visible() 硬过滤执行（Routing suggests. Authorization decides. Visibility enforces.，模式见 request-understanding.md §0）。（= 铁律 9）
+10. **Intent 歧义 fail closed**：scope/temporal 无法确定时默认解析到 current / 更窄 scope，绝不用扩大信息可见范围来消除歧义（与第 4 条 scope 硬过滤、project fail closed 同族）；仅 material ambiguity（显著影响权限/scope/副作用/工具操作/结果正确性）才向用户澄清。（= 铁律 9）
 
 **Recommended Default**（本文全部数字皆属此类：经验起点，应通过真实数据集与 eval 校准，不是架构真理）：
 

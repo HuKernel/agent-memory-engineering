@@ -13,6 +13,7 @@
 | P5 | "Audit the memory architecture in this repository." | 触发，进 AUDIT（只读） |
 | P6 | "这个 Agent 该怎么理解用户请求、识别意图、做能力路由？" | 触发，读 request-understanding.md |
 | P7 | "给记忆系统写测试和评估指标。" | 触发，读 testing.md |
+| P8 | "把旧的记忆系统迁到新架构，schema 怎么演进？" | 触发，进 MIGRATION 工作流 |
 
 ## 2. 触发测试（负样本：不应激活，易误伤域）
 
@@ -41,6 +42,17 @@
 6. IMPLEMENT 后对账 `AGENT_MEMORY_DESIGN.md`，EVALUATE 给出 evaluation_plan（required / optional / skipped_tests 带 reason）；
 7. Definition of Done 六项逐条核验后才交付。
 
+### MIGRATION
+
+输入："我们有一套旧的 memory 表，scope 字段刚加的，NULL 很多，想迁到新架构。"
+
+期望序列：
+1. INSPECT 现状——读现有 schema 与读写路径，判定落在 Phase 1（正确性/隔离）而非直接加新维度；
+2. 对齐目标架构——产出新旧映射表；
+3. 迁移执行走幂等补列，**明确指出旧行 NULL 不得自动解释为 global**（`scope=NULL` 是未知 scope，需显式 backfill 或 fail closed 不参与召回）；
+4. VERIFY 跑隔离类硬测试（场景 2/12/13/15）；
+5. 涉及生产数据大规模迁移 → 停下来给影响面与回滚方案，等用户确认。
+
 ### AUDIT
 
 输入："帮我看看这个仓库的 memory 架构设计得怎么样。"
@@ -57,4 +69,12 @@
 
 - 改 frontmatter description / 触发词 → 重跑 §1–§2 全部样本；
 - 改工作流阶段定义或产出模板 → 重跑 §3 对应 trace；
+- 改 references 章节结构（增删 §、改编号）→ 重跑全部 golden trace 并校验跨文档 § 引用有效性；
 - 只改措辞 / 修错字 → 不要求重跑。
+
+## 5. 结构校验（每次提交前跑）
+
+- `SKILL.md` frontmatter 的 `description` ≤ 1024 字符（Agent Skills 规范硬上限）；
+- `SKILL.md` 行数 < 500、体量控制在 ~5000 token 内（避免挤占用户工作上下文）；
+- 所有跨文档 `§` 引用带文件名，不出现孤立裸 `§N`；
+- `references/` 下每个文件被 SKILL.md 或其他 reference 至少引用一次（无孤儿文件）。

@@ -1,6 +1,6 @@
 # 请求理解与路由（Request Understanding & Routing）模式
 
-提炼自真实生产系统与主流 Agent 工程共识（见 architecture.md §11）。定位：**Pattern Library / 设计参考**，与 architecture.md 平级——architecture.md 管 Memory / Context 的存取与组装，本文管请求进入后的**理解与调度**。**不是平行系统**：现有会话范围路由、Normal/Historical 双路由、能力门控、Writer 预判、forget 识别全部**收编**为 Request Understanding 的实现（§8.1 收编表：入口统一、实现不变）。术语按 SKILL.md 约定。
+提炼自真实生产系统与主流 Agent 工程共识（见 architecture.md §11）。定位：**Pattern Library / 设计参考**，与 architecture.md 平级——architecture.md 管 Memory / Context 的存取与组装，本文管请求进入后的**理解与调度**。**不是平行系统**：现有会话范围路由、Normal/Historical 双路由、能力门控、Writer 预判、forget 识别全部**收编**为 Request Understanding 的实现（本文 §8.1 收编表：入口统一、实现不变）。术语按 SKILL.md 约定。
 
 运行时最高原则（完整管线图见 architecture.md 开篇「Runtime Information Architecture」）：
 
@@ -41,7 +41,9 @@ Router 的能与不能（违反即触犯 architecture §0.9–0.10 Hard Invarian
 
 ## 1. Request Model（多维请求模型）
 
-Recommended Schema——**BUILD 按项目裁剪，禁止为架构漂亮让所有项目使用全部字段**：
+Recommended Schema——**BUILD 按项目裁剪，禁止为架构漂亮让所有项目使用全部字段**。
+
+**顶层键名**：本文件的 canonical 顶层键是 **`request_understanding`**（下文 `request model` 指其内部各维度）。routing_trace 中的对应摘要键为 `parsed_request`（§10）；产出模板中的字段清单见 `references/templates.md`。**不要同时使用 `request_mapping` / `request_model` 作顶层键**——三者语义相同、只能取其一。
 
 ```yaml
 request_understanding:
@@ -59,7 +61,7 @@ request_understanding:
      raw_history, knowledge, realtime_state]
   action_need:
     type: answer | retrieve | tool_action | mutate_state | delegate
-  capability_plan:             # §7；最重要的输出
+  capability_plan:             # §7；最重要的输出（canonical 键集见下）
     session_history: false
     user_memory: false
     project_memory: false
@@ -207,9 +209,12 @@ capability_plan:
   external_state: false       # 实时 Source of Truth 读取（≠ tools，见下）
   tools: false
   specialist_agent: false
-  # memory 键可按 memory_type 细分（semantic/episodic/procedural），
-  # 与 architecture §9.5 context_plan 的分型块对齐；简单项目用粗粒度键
 ```
+
+**canonical 键集 = 上方 8 个键**（§1 Recommended Schema 与本节一致）。两条扩展规则：
+
+- **memory 键可按 memory_type 细分**：`user_memory` / `project_memory` 可细分为 `semantic_memory` / `episodic_memory` / `procedural_memory`（与 architecture §9.5 context_plan 的分型块对齐）。**细分时用细分键替换原键，不要两者并存**——`user_memory` 与 `semantic_memory` 同时存在会产生"哪个是权威"的歧义。简单项目用粗粒度键即可。
+- **可选扩展 `model_selection` / `reasoning_effort`**：按 intent 与复杂度决定快模型 vs 推理模型（"when to reason"），见下方判定器级联段。
 
 **realtime_state vs external_state**（术语，勿混）：
 
